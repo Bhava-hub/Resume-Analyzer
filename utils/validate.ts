@@ -26,7 +26,10 @@ export function validateJobDescription(jd: string): ValidationResult {
 
 export function validatePdfFile(file: File): ValidationResult {
   if (!file) return { valid: false, error: 'Please upload your resume as a PDF.' };
-  if (file.type !== 'application/pdf')
+  const isPdf =
+    file.type === 'application/pdf' ||
+    (file.type === '' && file.name.toLowerCase().endsWith('.pdf'));
+  if (!isPdf)
     return { valid: false, error: 'Only PDF files are accepted.' };
   if (file.size > PDF_MAX_BYTES)
     return { valid: false, error: 'PDF must be under 5 MB.' };
