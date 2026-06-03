@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PDFParse } from 'pdf-parse';
+// NOTE: pdf-parse is dynamically imported below to avoid a Vercel startup crash.
+// The package reads test files from disk at module-load time, which fails in serverless bundles.
 import { getGeminiModel } from '@/lib/gemini';
 import { sanitizeText } from '@/utils/sanitize';
 import {
@@ -92,9 +93,10 @@ export async function POST(request: NextRequest) {
     return errorResponse('PDF must be under 5 MB.', 'VALIDATION_ERROR');
   }
 
-  // Extract text from PDF using pdf-parse v2 class API
+  // Extract text from PDF using pdf-parse v2 class API (dynamic import avoids serverless crash)
   let resumeText: string;
   try {
+    const { PDFParse } = await import('pdf-parse');
     const parser = new PDFParse({ data: new Uint8Array(buffer) });
     const result = await parser.getText();
     resumeText = result.text.trim();
