@@ -13,6 +13,7 @@ import { parseAnalysisResponse } from '@/utils/parse';
 import type { AnalysisError } from '@/types/analysis';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60; // Vercel: extend timeout to 60s (Hobby plan max)
 
 function errorResponse(message: string, code: AnalysisError['code'], status = 400) {
   return NextResponse.json({ error: { message, code } }, { status });

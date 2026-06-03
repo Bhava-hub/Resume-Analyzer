@@ -3,6 +3,7 @@ import { getGeminiModel } from '@/lib/gemini';
 import type { RedditStory } from '@/types/analysis';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60; // Vercel: extend timeout to 60s (Hobby plan max)
 
 // Apify run-sync endpoint — blocks until the actor finishes and returns items directly
 const APIFY_ENDPOINT =
