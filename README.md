@@ -125,16 +125,4 @@ resume-analyzer/
 
 ---
 
-## ☁️ Deploy to Vercel
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Bhava-hub/resume-analyzer)
-
-1. Click the button above (or import manually at [vercel.com/new](https://vercel.com/new))
-2. Add your environment variables in the Vercel dashboard
-3. Deploy — done ✅
-
----
-
-## 📄 License
-
 MIT © [Bhava-hub](https://github.com/Bhava-hub)
