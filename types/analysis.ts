@@ -27,3 +27,73 @@ export interface AnalysisError {
 }
 
 export type AnalysisStatus = 'idle' | 'loading' | 'success' | 'error';
+
+// ── Reddit Stories (kept for reference, replaced by CareerRoadmap) ────────────
+
+export interface RedditStory {
+  title: string;
+  summary: string;
+  url: string;
+  upVotes: number;
+  communityName: string;
+  category: 'how-they-got-in' | 'advice';
+  /** ISO-8601 date string when the post was created (from Apify) */
+  postedAt?: string;
+}
+
+export interface RedditStoriesResult {
+  jobTitle: string;
+  stories: RedditStory[];
+}
+
+export type RedditStatus = 'idle' | 'loading' | 'success' | 'error';
+
+// ── Career Roadmap ────────────────────────────────────────────────────────────
+
+export interface StepResource {
+  label: string;
+  url: string;
+  type: 'course' | 'docs' | 'github' | 'article' | 'other';
+}
+
+export interface RoadmapStep {
+  step: number;
+  action: string;            // Short headline: "Build a portfolio project with Pandas"
+  detail: string;            // Longer explanation of exactly what to do
+  redditEvidence?: string;   // Quote or paraphrase from a Reddit post
+  redditUrl?: string;        // Link to that post
+  resources?: StepResource[];
+}
+
+export interface RoadmapAdvice {
+  tip: string;               // Short advice headline
+  reason: string;            // Why this matters for their specific gaps
+  redditEvidence?: string;   // Quote from Reddit
+  redditUrl?: string;
+}
+
+export type ReferenceLinkType = 'course' | 'docs' | 'community' | 'github' | 'article' | 'reddit';
+
+export interface ReferenceLink {
+  title: string;
+  url: string;
+  type: ReferenceLinkType;
+  description: string;       // 1-sentence why this is relevant
+  isReddit: boolean;
+  // Optional rich Reddit fields for detailed story display
+  subreddit?: string;
+  category?: 'entry-story' | 'advice' | 'both';
+  keyActions?: string[];
+  backgroundContext?: string;
+  upVotes?: number;
+}
+
+export interface CareerRoadmap {
+  jobTitle: string;
+  entrancePlan: RoadmapStep[];
+  advice: RoadmapAdvice[];
+  referenceLinks: ReferenceLink[];
+  redditPostsUsed: number;   // how many Reddit posts informed this roadmap
+}
+
+export type CareerRoadmapStatus = 'idle' | 'loading' | 'success' | 'error';

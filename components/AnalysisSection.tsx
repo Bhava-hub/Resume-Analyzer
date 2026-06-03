@@ -3,6 +3,16 @@
 import { useState } from 'react';
 import type { AnalysisSection as AnalysisSectionType } from '@/types/analysis';
 
+/** Strip common markdown artifacts (bold, italic, inline code, leading bullets). */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/`(.*?)`/g, '$1')
+    .replace(/^[-*•·]\s+/, '')
+    .trim();
+}
+
 interface Props {
   section: AnalysisSectionType;
   icon: React.ReactNode;
@@ -71,9 +81,9 @@ export default function AnalysisSection({ section, icon, accentClass }: Props) {
             <li key={idx} className="flex gap-3 py-3">
               <CheckIcon />
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-800">{item.point}</p>
+                <p className="text-sm font-medium text-gray-800">{stripMarkdown(item.point)}</p>
                 {item.explanation && (
-                  <p className="mt-0.5 text-sm text-gray-500">{item.explanation}</p>
+                  <p className="mt-0.5 text-sm text-gray-500">{stripMarkdown(item.explanation)}</p>
                 )}
               </div>
             </li>

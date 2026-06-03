@@ -21,32 +21,31 @@ function errorResponse(message: string, code: AnalysisError['code'], status = 40
 const PROMPT_TEMPLATE = (resumeText: string, jobDescription: string) => `
 You are a brutal but helpful hiring manager with 10 years of experience.
 
-Analyze this resume against this job description.
+Analyze this resume against the job description below.
 
-Return a structured analysis with EXACTLY these four sections:
+You MUST respond with ONLY valid JSON — no markdown, no code fences, no explanation outside the JSON.
 
-1) Missing Skills
-- list each missing skill
-- explain why it matters for this specific role
-
-2) Experience Gaps
-- specific experiences the resume lacks that the JD demands
-
-3) Keyword Mismatches
-- exact keywords in the JD absent from the resume
-
-4) Action Plan
-- for each gap:
-  - one concrete actionable fix
-  - achievable in under 4 weeks
-  - specify EXACT keyword to add
-  - specify EXACT section where it should be added
+The JSON must follow this exact schema:
+{
+  "missingSkills": [
+    { "point": "skill name", "explanation": "why it matters for this role" }
+  ],
+  "experienceGaps": [
+    { "point": "gap description", "explanation": "what the JD demands that the resume lacks" }
+  ],
+  "keywordMismatches": [
+    { "point": "exact keyword from JD", "explanation": "context — where it appears in the JD" }
+  ],
+  "actionPlan": [
+    { "point": "concrete action", "explanation": "exact keyword to add and exact resume section to add it in" }
+  ]
+}
 
 Rules:
-- Be brutally specific
-- Never say 'add more keywords'
-- Never give generic advice
-- Always tailor feedback to the JD
+- Every array must have at least one item.
+- Be brutally specific — tailor every point to this exact JD.
+- Never say 'add more keywords' or give generic advice.
+- All values must be plain text — no markdown, no bullet symbols, no asterisks.
 
 ---RESUME---
 ${resumeText}
@@ -139,10 +138,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Strip markdown code fences if Gemini wraps the JSON in ```json ... ```
+  const stripped = rawResponse
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/, '')
+    .trim();
+
   // Parse structured response
   let analysisResult;
   try {
-    analysisResult = parseAnalysisResponse(rawResponse);
+    analysisResult = parseAnalysisResponse(stripped);
   } catch {
     return errorResponse(
       'Failed to parse the AI response. Please try again.',

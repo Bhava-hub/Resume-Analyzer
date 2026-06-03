@@ -1,19 +1,5 @@
 import type { AnalysisItem, AnalysisResult, AnalysisSection } from '@/types/analysis';
 
-const SECTION_PATTERNS: Record<keyof AnalysisResult, RegExp> = {
-  missingSkills: /1\)\s*Missing Skills?\s*[-:]?\s*/i,
-  experienceGaps: /2\)\s*Experience\s*Gaps?\s*[-:]?\s*/i,
-  keywordMismatches: /3\)\s*Keyword\s*Mismatches?\s*[-:]?\s*/i,
-  actionPlan: /4\)\s*Action\s*Plan\s*[-:]?\s*/i,
-};
-
-const SECTION_ORDER: (keyof AnalysisResult)[] = [
-  'missingSkills',
-  'experienceGaps',
-  'keywordMismatches',
-  'actionPlan',
-];
-
 const SECTION_TITLES: Record<keyof AnalysisResult, string> = {
   missingSkills: 'Missing Skills',
   experienceGaps: 'Experience Gaps',
@@ -21,72 +7,59 @@ const SECTION_TITLES: Record<keyof AnalysisResult, string> = {
   actionPlan: 'Action Plan',
 };
 
-function parseItems(raw: string): AnalysisItem[] {
-  const lines = raw
-    .split('\n')
-    .map((l) => l.replace(/^[-*•·]\s*/, '').trim())
-    .filter(Boolean);
-
-  const items: AnalysisItem[] = [];
-
-  for (const line of lines) {
-    // Lines with a colon split into point + explanation
-    const colonIdx = line.indexOf(':');
-    if (colonIdx > 0 && colonIdx < line.length - 1) {
-      items.push({
-        point: line.slice(0, colonIdx).trim(),
-        explanation: line.slice(colonIdx + 1).trim(),
-      });
-    } else {
-      items.push({ point: line });
-    }
-  }
-
-  return items;
+/** Strip common markdown artifacts that might leak through despite the prompt. */
+function cleanText(text: unknown): string {
+  if (typeof text !== 'string') return String(text ?? '');
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1') // **bold**
+    .replace(/\*(.*?)\*/g, '$1')     // *italic*
+    .replace(/`(.*?)`/g, '$1')       // `code`
+    .replace(/^[-*•·]\s+/, '')       // leading bullet
+    .trim();
 }
 
-function buildSection(title: string, raw: string): AnalysisSection {
-  return { title, items: parseItems(raw) };
+function toItems(arr: unknown): AnalysisItem[] {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => {
+      const i = item as Record<string, unknown>;
+      const point = cleanText(i['point'] ?? i['skill'] ?? i['gap'] ?? i['keyword'] ?? i['action'] ?? '');
+      const explanation = i['explanation'] != null ? cleanText(i['explanation']) : undefined;
+      return { point, ...(explanation ? { explanation } : {}) };
+    })
+    .filter((item) => item.point.length > 0);
+}
+
+function buildSection(key: keyof AnalysisResult, items: AnalysisItem[]): AnalysisSection {
+  return { title: SECTION_TITLES[key], items };
 }
 
 export function parseAnalysisResponse(raw: string): AnalysisResult {
-  // Find start index of each section
-  const indices: Partial<Record<keyof AnalysisResult, number>> = {};
+  let parsed: unknown;
 
-  for (const key of SECTION_ORDER) {
-    const match = SECTION_PATTERNS[key].exec(raw);
-    if (match) indices[key] = match.index + match[0].length;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // If JSON.parse fails, attempt to extract a JSON object from the string
+    // (handles cases where Gemini prepends/appends extra text)
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Response does not contain valid JSON');
+    }
+    parsed = JSON.parse(jsonMatch[0]);
   }
 
-  // Extract text between consecutive section starts
-  const sections: Partial<AnalysisResult> = {};
-
-  for (let i = 0; i < SECTION_ORDER.length; i++) {
-    const key = SECTION_ORDER[i];
-    const start = indices[key];
-    if (start === undefined) {
-      sections[key] = buildSection(SECTION_TITLES[key], '');
-      continue;
-    }
-
-    // Find the next known section start to determine end boundary
-    let end = raw.length;
-    for (let j = i + 1; j < SECTION_ORDER.length; j++) {
-      const nextKey = SECTION_ORDER[j];
-      const nextMatch = SECTION_PATTERNS[nextKey].exec(raw);
-      if (nextMatch && nextMatch.index > start) {
-        end = nextMatch.index;
-        break;
-      }
-    }
-
-    sections[key] = buildSection(SECTION_TITLES[key], raw.slice(start, end).trim());
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error('Parsed JSON is not an object');
   }
+
+  const obj = parsed as Record<string, unknown>;
 
   return {
-    missingSkills: sections.missingSkills!,
-    experienceGaps: sections.experienceGaps!,
-    keywordMismatches: sections.keywordMismatches!,
-    actionPlan: sections.actionPlan!,
+    missingSkills: buildSection('missingSkills', toItems(obj['missingSkills'])),
+    experienceGaps: buildSection('experienceGaps', toItems(obj['experienceGaps'])),
+    keywordMismatches: buildSection('keywordMismatches', toItems(obj['keywordMismatches'])),
+    actionPlan: buildSection('actionPlan', toItems(obj['actionPlan'])),
   };
 }

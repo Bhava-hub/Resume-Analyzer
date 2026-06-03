@@ -1,36 +1,140 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+<div align="center">
 
-## Getting Started
+# 🎯 Resume Analyzer
 
-First, run the development server:
+**AI-powered resume analysis + personalized career roadmaps, backed by real Reddit stories**
+
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)](https://www.typescriptlang.org)
+[![Gemini](https://img.shields.io/badge/Google-Gemini-4285F4?logo=google)](https://aistudio.google.com)
+[![Groq](https://img.shields.io/badge/Groq-LLaMA-F55036)](https://groq.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+</div>
+
+---
+
+## ✨ What it does
+
+Resume Analyzer takes your resume (PDF or text) and a target job title, then:
+
+1. **🔍 Analyzes your resume** — identifies missing skills, experience gaps, and keyword mismatches against your target role
+2. **📍 Builds a career roadmap** — step-by-step action plan tailored to your specific gaps
+3. **🗣️ Surfaces real Reddit stories** — finds genuine "how I got in" posts and career advice from people who actually made the transition
+4. **📚 Recommends resources** — curated courses, docs, and communities per roadmap step
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript 5 |
+| AI — Resume Analysis | Google Gemini |
+| AI — Roadmap Generation | Groq (LLaMA) |
+| Reddit Scraping | Apify Reddit Scraper Lite |
+| Semantic Ranking | HuggingFace Inference API |
+| Styling | Tailwind CSS v4 |
+
+---
+
+## 🚀 Getting Started
+
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/Bhava-hub/resume-analyzer.git
+cd resume-analyzer
+```
+
+### 2. Install dependencies
+
+```bash
+npm install
+```
+
+### 3. Set up environment variables
+
+```bash
+cp .env.example .env.local
+```
+
+Fill in your `.env.local`:
+
+```env
+# Google Gemini API — https://aistudio.google.com/app/apikey
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Apify (Reddit scraping) — https://console.apify.com/account/integrations
+APIFY_API_TOKEN=your_apify_token_here
+
+# Groq (fast LLM inference, free tier) — https://console.groq.com/keys
+GROQ_API_KEY=your_groq_api_key_here
+
+# HuggingFace (semantic similarity, free tier) — https://huggingface.co/settings/tokens
+HUGGINGFACE_API_KEY=your_huggingface_token_here
+```
+
+> All four services have **free tiers** — no credit card required to get started.
+
+### 4. Run locally
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 📁 Project Structure
 
-## Learn More
+```
+resume-analyzer/
+├── app/
+│   ├── api/
+│   │   ├── analyze/          # Resume analysis endpoint
+│   │   ├── career-roadmap/   # Roadmap generation endpoint
+│   │   └── reddit-stories/   # Reddit story fetching endpoint
+│   └── page.tsx              # Main UI page
+├── components/
+│   ├── ResumeForm.tsx         # Upload + input form
+│   ├── AnalysisResults.tsx    # Gap analysis display
+│   ├── CareerRoadmap.tsx      # Roadmap UI
+│   └── RedditStories.tsx      # Reddit stories display
+├── hooks/
+│   └── useRedditStories.ts    # Reddit stories state hook
+├── types/
+│   └── analysis.ts            # Shared TypeScript types
+└── lib/
+    ├── gemini.ts              # Gemini client
+    └── groq.ts                # Groq client
+```
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🔑 API Keys Setup
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Service | Free Tier | Get Key |
+|---|---|---|
+| Google Gemini | 1,500 req/day | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
+| Groq | 14,400 req/day | [console.groq.com](https://console.groq.com/keys) |
+| Apify | $5 free credit | [console.apify.com](https://console.apify.com/account/integrations) |
+| HuggingFace | Unlimited (rate-limited) | [huggingface.co](https://huggingface.co/settings/tokens) |
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## ☁️ Deploy to Vercel
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Bhava-hub/resume-analyzer)
+
+1. Click the button above (or import manually at [vercel.com/new](https://vercel.com/new))
+2. Add your environment variables in the Vercel dashboard
+3. Deploy — done ✅
+
+---
+
+## 📄 License
+
+MIT © [Bhava-hub](https://github.com/Bhava-hub)
