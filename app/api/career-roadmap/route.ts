@@ -666,6 +666,34 @@ const DOMAIN_ROOT_MAP: Record<string, string> = {
   'cloud.google.com': 'https://cloud.google.com/docs',
   'docs.microsoft.com': 'https://docs.microsoft.com',
   'learn.microsoft.com': 'https://learn.microsoft.com',
+  // Apache ecosystem
+  'airflow.apache.org': 'https://airflow.apache.org/docs/',
+  'spark.apache.org': 'https://spark.apache.org/docs/latest/',
+  'kafka.apache.org': 'https://kafka.apache.org/documentation/',
+  'hadoop.apache.org': 'https://hadoop.apache.org/docs/current/',
+  // Data / ML tools
+  'docs.getdbt.com': 'https://docs.getdbt.com',
+  'scikit-learn.org': 'https://scikit-learn.org/stable/',
+  'pandas.pydata.org': 'https://pandas.pydata.org/docs/',
+  'pytorch.org': 'https://pytorch.org/docs/stable/',
+  'www.tensorflow.org': 'https://www.tensorflow.org/learn',
+  'tensorflow.org': 'https://www.tensorflow.org/learn',
+  // Databases
+  'www.postgresql.org': 'https://www.postgresql.org/docs/',
+  'postgresql.org': 'https://www.postgresql.org/docs/',
+  'dev.mysql.com': 'https://dev.mysql.com/doc/',
+  'redis.io': 'https://redis.io/docs/',
+  'www.mongodb.com': 'https://www.mongodb.com/docs/',
+  'mongodb.com': 'https://www.mongodb.com/docs/',
+  // Infrastructure / DevOps
+  'developer.hashicorp.com': 'https://developer.hashicorp.com',
+  'www.terraform.io': 'https://www.terraform.io/docs',
+  'terraform.io': 'https://www.terraform.io/docs',
+  'docs.ansible.com': 'https://docs.ansible.com',
+  'docs.docker.com': 'https://docs.docker.com',
+  // Python web frameworks
+  'fastapi.tiangolo.com': 'https://fastapi.tiangolo.com',
+  'www.djangoproject.com': 'https://docs.djangoproject.com',
   // Community — root URLs are useful browse/search hubs, keep them
   'stackoverflow.com': 'https://stackoverflow.com',
   'www.stackoverflow.com': 'https://stackoverflow.com',
