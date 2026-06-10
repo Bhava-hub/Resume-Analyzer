@@ -246,6 +246,23 @@ async function searchCoursesViaApify(
   }
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Strip HTML entities (e.g. &#32; → space) and tags from Apify-returned text */
+function stripHtml(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // ── Step 1: Scrape Reddit via Apify ─────────────────────────────────────────
 
 async function scrapeReddit(jobTitle: string): Promise<ApifyPost[]> {
@@ -596,16 +613,16 @@ async function generateRoadmapWithGroq(
   // Sort entrancePlan steps strictly by step number to ensure correct order
   parsed.entrancePlan.sort((a, b) => a.step - b.step);
 
-  // Add top Reddit posts to referenceLinks
+  // Add top Reddit posts to referenceLinks (HTML entities decoded, deduped by URL)
   for (const post of rawPosts.slice(0, 5)) {
     if (!post.url) continue;
     const alreadyAdded = parsed.referenceLinks.some((l) => l.url === post.url);
     if (!alreadyAdded) {
       parsed.referenceLinks.push({
-        title: post.title ?? '',
+        title: stripHtml(post.title ?? ''),
         url: post.url,
         type: 'reddit',
-        description: (post.body ?? '').slice(0, 120) || 'Reddit discussion',
+        description: stripHtml((post.body ?? '').slice(0, 150)) || 'Reddit discussion',
         isReddit: true,
         subreddit: post.communityName ?? '',
         upVotes: post.upVotes ?? 0,
@@ -875,8 +892,22 @@ export async function POST(request: NextRequest) {
 
   if (rawPosts.length > 0) {
     console.log('[career-roadmap] Step 2: HuggingFace semantic ranking…');
-    rankedPosts = await rankByRelevance(rawPosts, jobTitle, jobDescription);
-    console.log(`[career-roadmap] Step 2 done: ${rankedPosts.length} relevant posts`);
+    const hfRanked = await rankByRelevance(rawPosts, jobTitle, jobDescription);
+
+    // Deduplicate by URL first, then by normalised title
+    // (Apify returns the same post from multiple searches; near-duplicate titles also filtered)
+    const seenUrls = new Set<string>();
+    const seenTitles = new Set<string>();
+    rankedPosts = hfRanked.filter((p) => {
+      if (!p.url) return false;
+      const normTitle = (p.title ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
+      if (seenUrls.has(p.url) || seenTitles.has(normTitle)) return false;
+      seenUrls.add(p.url);
+      if (normTitle) seenTitles.add(normTitle);
+      return true;
+    });
+
+    console.log(`[career-roadmap] Step 2 done: ${rankedPosts.length} unique posts (from ${hfRanked.length})`);
   }
 
   // ── Step 3: Groq roadmap generation (llama-3.1-8b-instant)

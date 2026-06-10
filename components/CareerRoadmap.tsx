@@ -338,8 +338,18 @@ function ResourceLink({ link }: { link: ReferenceLink }) {
 }
 
 function RealLifeStories({ roadmap }: { roadmap: CareerRoadmap }) {
-  const redditLinks = roadmap.referenceLinks.filter((l) => l.isReddit);
-  const otherLinks  = roadmap.referenceLinks.filter((l) => !l.isReddit);
+  // Dedup by URL first, then by normalised title (safety net for near-duplicate Apify posts)
+  const seenUrls = new Set<string>();
+  const seenTitles = new Set<string>();
+  const redditLinks = roadmap.referenceLinks.filter((l) => {
+    if (!l.isReddit) return false;
+    const normTitle = (l.title ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
+    if (seenUrls.has(l.url) || (normTitle && seenTitles.has(normTitle))) return false;
+    seenUrls.add(l.url);
+    if (normTitle) seenTitles.add(normTitle);
+    return true;
+  });
+  const otherLinks = roadmap.referenceLinks.filter((l) => !l.isReddit);
 
   return (
     <div className="space-y-6">
@@ -422,8 +432,7 @@ function LoadingState() {
         <div className="space-y-2 text-sm">
           <PipelineStep icon="🔍" label="Scraping Reddit for real career stories…" done={false} />
           <PipelineStep icon="🤖" label="HuggingFace: ranking posts by relevance…" done={false} />
-          <PipelineStep icon="⚡" label="Groq: extracting key insights from posts…" done={false} />
-          <PipelineStep icon="✨" label="Gemini: generating personalised roadmap…" done={false} />
+          <PipelineStep icon="⚡" label="Groq: generating personalised roadmap…" done={false} />
         </div>
         <p className="mt-3 text-xs text-indigo-400">This takes ~30–45 seconds. The more Reddit posts found, the richer the roadmap.</p>
       </div>
@@ -524,7 +533,7 @@ export default function CareerRoadmap({ roadmap, status, error }: Props) {
           <p className="mt-0.5 text-sm text-gray-500">
             {roadmap
               ? `Generated from your resume gaps + ${roadmap.redditPostsUsed} real Reddit career stories`
-              : 'Powered by Gemini · Groq · HuggingFace · Reddit (via Apify)'}
+              : 'Powered by Groq · HuggingFace · Reddit (via Apify)'}
           </p>
         </div>
       </div>
@@ -597,7 +606,7 @@ export default function CareerRoadmap({ roadmap, status, error }: Props) {
 
           {/* Footer */}
           <p className="mt-4 text-xs text-gray-400">
-            Pipeline: Apify (Reddit) → HuggingFace (semantic ranking) → Groq/Llama 3 (insight extraction) → Gemini (roadmap generation)
+            Pipeline: Apify (Reddit) → HuggingFace (semantic ranking) → Groq/Llama 3 (roadmap generation)
           </p>
         </>
       )}
