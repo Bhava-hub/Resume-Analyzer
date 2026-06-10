@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiModel } from '@/lib/gemini';
 import { callGroq } from '@/lib/groq';
 import type { AnalysisResult, CareerRoadmap, ReferenceLink, RoadmapAdvice, RoadmapStep, StepResource } from '@/types/analysis';
 
 export const runtime = 'nodejs';
-// Give the pipeline enough time (HF + Groq + Apify + Gemini can chain to ~45s)
+// Give the pipeline enough time (HF + Groq + Apify can chain to ~45s)
 export const maxDuration = 60;
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -444,9 +443,9 @@ async function extractInsightsWithGroq(
   }
 }
 
-// ── Step 4: Gemini — generate the final roadmap ──────────────────────────────
+// ── Step 4: Groq — generate the final roadmap ────────────────────────────────────
 
-const GEMINI_ROADMAP_PROMPT = (
+const GROQ_ROADMAP_PROMPT = (
   jobTitle: string,
   jobDescription: string,
   analysisResult: AnalysisResult,
@@ -556,24 +555,35 @@ ${resourceRules}
 `.trim();
 };
 
-async function generateRoadmapWithGemini(
+async function generateRoadmapWithGroq(
   jobTitle: string,
   jobDescription: string,
   analysisResult: AnalysisResult,
   redditInsights: ProcessedPost[],
   discoveredCourseUrls: Record<string, string>,
 ): Promise<Omit<CareerRoadmap, 'jobTitle' | 'redditPostsUsed'>> {
-  const raw = await getGeminiModel().generateContent(
-    GEMINI_ROADMAP_PROMPT(jobTitle, jobDescription, analysisResult, redditInsights, discoveredCourseUrls),
+  const raw = await callGroq(
+    [
+      {
+        role: 'system',
+        content:
+          'You are a senior career coach. You always respond with valid JSON only. No markdown, no code fences, no explanation.',
+      },
+      {
+        role: 'user',
+        content: GROQ_ROADMAP_PROMPT(jobTitle, jobDescription, analysisResult, redditInsights, discoveredCourseUrls),
+      },
+    ],
+    // llama-3.3-70b-versatile: most capable free Groq model — handles large structured JSON well
+    { model: 'llama-3.3-70b-versatile', temperature: 0.3, maxTokens: 4096 },
   );
 
-  let text = raw.response.text();
-  text = text
+  const stripped = raw
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/```\s*$/, '')
     .trim();
 
-  const parsed = JSON.parse(text) as {
+  const parsed = JSON.parse(stripped) as {
     entrancePlan: RoadmapStep[];
     advice: RoadmapAdvice[];
     referenceLinks: ReferenceLink[];
@@ -849,12 +859,12 @@ export async function POST(request: NextRequest) {
     console.log(`[career-roadmap] Step 3 done: ${redditInsights.length} processed posts`);
   }
 
-  // ── Step 4: Gemini roadmap generation
-  console.log('[career-roadmap] Step 4: Gemini roadmap generation…');
+  // ── Step 4: Groq roadmap generation (llama-3.3-70b-versatile)
+  console.log('[career-roadmap] Step 4: Groq roadmap generation…');
   let roadmapParts: Omit<CareerRoadmap, 'jobTitle' | 'redditPostsUsed'>;
 
   try {
-    const rawRoadmap = await generateRoadmapWithGemini(
+    const rawRoadmap = await generateRoadmapWithGroq(
       jobTitle,
       jobDescription,
       analysisResult,
@@ -869,8 +879,8 @@ export async function POST(request: NextRequest) {
     console.log('[career-roadmap] Step 5 done ✓');
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[career-roadmap] Gemini error:', msg);
-    const isRateLimit = msg.includes('429');
+    console.error('[career-roadmap] Groq error:', msg);
+    const isRateLimit = msg.includes('429') || msg.includes('rate_limit');
     return errorResponse(
       isRateLimit
         ? 'AI rate limit reached. Please wait a moment and try again.'

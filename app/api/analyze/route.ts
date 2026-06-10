@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 // NOTE: pdf-parse is dynamically imported to avoid its module-load side-effects
 // crashing the serverless function before any request is processed.
-import { getGeminiModel } from '@/lib/gemini';
+import { callGroq } from '@/lib/groq';
 import { sanitizeText } from '@/utils/sanitize';
 import {
   validateJobDescription,
@@ -116,15 +116,23 @@ export async function POST(request: NextRequest) {
   const cleanResume = sanitizeText(resumeText, RESUME_TEXT_MAX);
   const cleanJd = sanitizeText(jobDescription, 4000);
 
-  // Call Gemini
+  // Call Groq
   let rawResponse: string;
   try {
-    const result = await getGeminiModel().generateContent(PROMPT_TEMPLATE(cleanResume, cleanJd));
-    rawResponse = result.response.text();
+    rawResponse = await callGroq(
+      [
+        {
+          role: 'system',
+          content: 'You are a brutal but helpful hiring manager. You always respond with valid JSON only. No markdown, no code fences, no explanation.',
+        },
+        { role: 'user', content: PROMPT_TEMPLATE(cleanResume, cleanJd) },
+      ],
+      { model: 'llama-3.3-70b-versatile', temperature: 0.2, maxTokens: 2048 },
+    );
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error('[Gemini error]', errMsg);
-    const isRateLimit = errMsg.toLowerCase().includes('429');
+    console.error('[Groq error]', errMsg);
+    const isRateLimit = errMsg.includes('429') || errMsg.includes('rate_limit');
     if (isRateLimit) {
       return errorResponse(
         'Rate limit reached. Please wait a moment and try again.',
@@ -139,7 +147,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Strip markdown code fences if Gemini wraps the JSON in ```json ... ```
+  // Strip markdown code fences if Groq wraps the JSON in ```json ... ```
   const stripped = rawResponse
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/```\s*$/, '')

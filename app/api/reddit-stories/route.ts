@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiModel } from '@/lib/gemini';
+import { callGroq } from '@/lib/groq';
 import type { RedditStory } from '@/types/analysis';
 
 export const runtime = 'nodejs';
@@ -196,13 +196,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ data: { jobTitle, stories: [] } });
   }
 
-  // ── Step 2: Classify & summarize with Gemini ────────────────────────────────
+  // ── Step 2: Classify & summarize with Groq ─────────────────────────────────
   let stories: RedditStory[] = [];
   try {
-    const result = await getGeminiModel().generateContent(
-      CLASSIFY_PROMPT(jobTitle, redditPosts),
+    let raw = await callGroq(
+      [
+        {
+          role: 'system',
+          content: 'You are a career content analyst. You always respond with valid JSON arrays only. No markdown, no code fences, no explanation.',
+        },
+        { role: 'user', content: CLASSIFY_PROMPT(jobTitle, redditPosts) },
+      ],
+      { model: 'llama-3.3-70b-versatile', temperature: 0.2, maxTokens: 2048 },
     );
-    let raw = result.response.text();
 
     // Strip markdown code fences if present
     raw = raw
@@ -222,7 +228,7 @@ export async function POST(request: NextRequest) {
       return storyScore(b) - storyScore(a);
     });
   } catch (err) {
-    console.error('[Gemini classify error]', err);
+    console.error('[Groq classify error]', err);
     return errorResponse('Failed to process Reddit stories. Please try again.', 500);
   }
 
