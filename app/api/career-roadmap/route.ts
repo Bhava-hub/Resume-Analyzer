@@ -449,7 +449,7 @@ const GROQ_ROADMAP_PROMPT = (
   jobTitle: string,
   jobDescription: string,
   analysisResult: AnalysisResult,
-  redditInsights: ProcessedPost[],
+  rawPosts: ApifyPost[],
   discoveredCourseUrls: Record<string, string>,
 ) => {
   const hasCourseUrls = Object.keys(discoveredCourseUrls).length > 0;
@@ -491,14 +491,12 @@ ${jobDescription.slice(0, 500)}
 
 ${courseUrlBlock}
 
-Real Reddit insights from people who have been through this:
-${redditInsights.length > 0
-      ? redditInsights
-        .slice(0, 5)
+Raw Reddit posts (top relevant results — use for evidence and reference links):
+${rawPosts.length > 0
+      ? rawPosts
+        .slice(0, 4)
         .map(
-          (p) => `- [${p.category}] ${p.url}
-  Actions: ${p.keyActions.slice(0, 3).join(' | ')}
-  Context: ${p.backgroundContext.slice(0, 150)}`,
+          (p) => `- ${p.url}\n  Title: ${(p.title ?? '').slice(0, 100)}\n  Summary: ${(p.body ?? '').slice(0, 150)}`,
         )
         .join('\n')
       : '(No Reddit data available — generate roadmap based on analysis only)'
@@ -560,7 +558,7 @@ async function generateRoadmapWithGroq(
   jobTitle: string,
   jobDescription: string,
   analysisResult: AnalysisResult,
-  redditInsights: ProcessedPost[],
+  rawPosts: ApifyPost[],
   discoveredCourseUrls: Record<string, string>,
 ): Promise<Omit<CareerRoadmap, 'jobTitle' | 'redditPostsUsed'>> {
   const raw = await callGroq(
@@ -572,11 +570,11 @@ async function generateRoadmapWithGroq(
       },
       {
         role: 'user',
-        content: GROQ_ROADMAP_PROMPT(jobTitle, jobDescription, analysisResult, redditInsights, discoveredCourseUrls),
+        content: GROQ_ROADMAP_PROMPT(jobTitle, jobDescription, analysisResult, rawPosts, discoveredCourseUrls),
       },
     ],
-    // llama-3.1-8b-instant: higher free-tier TPM (20k vs 6k) — fast, handles structured JSON well
-    { model: 'llama-3.1-8b-instant', temperature: 0.3, maxTokens: 3000 },
+    // llama-3.1-8b-instant: 2 Groq calls total per pipeline (simplify + roadmap) — stays within free TPM
+    { model: 'llama-3.1-8b-instant', temperature: 0.3, maxTokens: 2000 },
   );
 
   const stripped = raw
@@ -597,21 +595,19 @@ async function generateRoadmapWithGroq(
   // Sort entrancePlan steps strictly by step number to ensure correct order
   parsed.entrancePlan.sort((a, b) => a.step - b.step);
 
-  // Add Reddit post links to referenceLinks if not already included
-  for (const post of redditInsights.slice(0, 5)) {
+  // Add top Reddit posts to referenceLinks
+  for (const post of rawPosts.slice(0, 5)) {
+    if (!post.url) continue;
     const alreadyAdded = parsed.referenceLinks.some((l) => l.url === post.url);
-    if (!alreadyAdded && post.url) {
+    if (!alreadyAdded) {
       parsed.referenceLinks.push({
-        title: post.title,
+        title: post.title ?? '',
         url: post.url,
         type: 'reddit',
-        description: post.backgroundContext || `Real ${post.category === 'entry-story' ? 'career journey' : 'advice'} from ${post.communityName}`,
+        description: (post.body ?? '').slice(0, 120) || 'Reddit discussion',
         isReddit: true,
-        subreddit: post.communityName,
-        category: post.category,
-        keyActions: post.keyActions,
-        backgroundContext: post.backgroundContext,
-        upVotes: post.upVotes,
+        subreddit: post.communityName ?? '',
+        upVotes: post.upVotes ?? 0,
       });
     }
   }
@@ -845,23 +841,17 @@ export async function POST(request: NextRequest) {
   // Populate the verified URL set so normalizeUrl() passes them through
   _verifiedCourseUrls = new Set(Object.values(discoveredCourseUrls));
 
-  // ── Steps 2 & 3 are sequential (HF needs posts, Groq needs HF output)
-  let redditInsights: ProcessedPost[] = [];
+  // ── Steps 2 & 3: HuggingFace semantic ranking (no separate Groq extract — saves one call)
+  let rankedPosts: ApifyPost[] = [];
 
   if (rawPosts.length > 0) {
-    // Step 2: HuggingFace semantic ranking
     console.log('[career-roadmap] Step 2: HuggingFace semantic ranking…');
-    const rankedPosts = await rankByRelevance(rawPosts, jobTitle, jobDescription);
+    rankedPosts = await rankByRelevance(rawPosts, jobTitle, jobDescription);
     console.log(`[career-roadmap] Step 2 done: ${rankedPosts.length} relevant posts`);
-
-    // Step 3: Groq extraction
-    console.log('[career-roadmap] Step 3: Groq insight extraction…');
-    redditInsights = await extractInsightsWithGroq(jobTitle, rankedPosts);
-    console.log(`[career-roadmap] Step 3 done: ${redditInsights.length} processed posts`);
   }
 
-  // ── Step 4: Groq roadmap generation (llama-3.3-70b-versatile)
-  console.log('[career-roadmap] Step 4: Groq roadmap generation…');
+  // ── Step 3: Groq roadmap generation (llama-3.1-8b-instant)
+  console.log('[career-roadmap] Step 3: Groq roadmap generation…');
   let roadmapParts: Omit<CareerRoadmap, 'jobTitle' | 'redditPostsUsed'>;
 
   try {
@@ -869,15 +859,14 @@ export async function POST(request: NextRequest) {
       jobTitle,
       jobDescription,
       analysisResult,
-      redditInsights,
+      rankedPosts,
       discoveredCourseUrls,
     );
 
-    // ── Step 5: Normalize URLs — collapse hallucinated paths to real roots
-    // Verified Apify URLs are preserved; everything else is root-collapsed or dropped.
-    console.log('[career-roadmap] Step 5: Normalizing resource URLs…');
+    // ── Step 4: Normalize URLs — collapse hallucinated paths to real roots
+    console.log('[career-roadmap] Step 4: Normalizing resource URLs…');
     roadmapParts = normalizeRoadmapUrls(rawRoadmap);
-    console.log('[career-roadmap] Step 5 done ✓');
+    console.log('[career-roadmap] Step 4 done ✓');
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[career-roadmap] Groq error:', msg);
@@ -892,7 +881,7 @@ export async function POST(request: NextRequest) {
 
   const roadmap: CareerRoadmap = {
     jobTitle,
-    redditPostsUsed: redditInsights.length,
+    redditPostsUsed: rankedPosts.length,
     ...roadmapParts,
   };
 
