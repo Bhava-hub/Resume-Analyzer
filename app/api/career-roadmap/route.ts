@@ -539,18 +539,18 @@ Generate this exact JSON structure:
   ]
 }
 
-Rules:
-- entrancePlan: 5–8 steps, strictly sorted in correct chronological and progressive order:
-  1. Bridge Foundational Gaps (e.g., missing core theory/skills)
-  2. Tools & Practical Practice (learning frameworks/libraries)
-  3. Portfolio Projects (building specific, non-trivial projects on GitHub)
-  4. Packaging & Resume Optimization (tailoring resume, setting up clean READMEs, documentation)
-  5. Interview Prep & Strategic Application (mock interviews, networking, job boards)
+Rules (STRICT — keep output concise to avoid truncation):
+- entrancePlan: EXACTLY 5 steps in order: (1) Foundational Skills, (2) Tools & Practice, (3) Portfolio Project, (4) Resume Polish, (5) Interview Prep.
+- action: max 8 words.
+- detail: max 2 sentences, max 30 words each.
+- redditEvidence: max 20 words or null.
+- resources: EXACTLY 1 resource per step (not 3).
+- resource label: max 6 words.
 ${resourceRules}
-- advice: 4–6 tips, each referencing their specific missing skills or gaps.
-- referenceLinks: 6–8 general high-level links; prefer the verified course URLs above where relevant, otherwise use stable root-level URLs.
-- Include Reddit post URLs from above as referenceLinks where relevant.
-- All text must be plain text — no markdown symbols (like **, *, #) inside strings.
+- advice: EXACTLY 3 tips. tip: max 8 words. reason: max 25 words.
+- referenceLinks: EXACTLY 4 links.
+- description in referenceLinks: max 15 words.
+- All text: plain text only, no markdown symbols.
 `.trim();
 };
 
@@ -573,8 +573,9 @@ async function generateRoadmapWithGroq(
         content: GROQ_ROADMAP_PROMPT(jobTitle, jobDescription, analysisResult, rawPosts, discoveredCourseUrls),
       },
     ],
-    // llama-3.1-8b-instant: 2 Groq calls total per pipeline (simplify + roadmap) — stays within free TPM
-    { model: 'llama-3.1-8b-instant', temperature: 0.3, maxTokens: 2000 },
+    // llama-3.1-8b-instant: 2 Groq calls total per pipeline (simplify + roadmap)
+    // maxTokens 3500 — concise prompt rules above keep actual output well under this
+    { model: 'llama-3.1-8b-instant', temperature: 0.3, maxTokens: 3500 },
   );
 
   const stripped = raw
