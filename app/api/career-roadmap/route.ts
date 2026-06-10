@@ -494,10 +494,11 @@ ${courseUrlBlock}
 Real Reddit insights from people who have been through this:
 ${redditInsights.length > 0
       ? redditInsights
+        .slice(0, 5)
         .map(
-          (p) => `- [${p.category}] (${p.communityName}) ${p.url}
-  Actions: ${p.keyActions.join(' | ')}
-  Context: ${p.backgroundContext}`,
+          (p) => `- [${p.category}] ${p.url}
+  Actions: ${p.keyActions.slice(0, 3).join(' | ')}
+  Context: ${p.backgroundContext.slice(0, 150)}`,
         )
         .join('\n')
       : '(No Reddit data available — generate roadmap based on analysis only)'
@@ -574,8 +575,8 @@ async function generateRoadmapWithGroq(
         content: GROQ_ROADMAP_PROMPT(jobTitle, jobDescription, analysisResult, redditInsights, discoveredCourseUrls),
       },
     ],
-    // llama-3.3-70b-versatile: most capable free Groq model — handles large structured JSON well
-    { model: 'llama-3.3-70b-versatile', temperature: 0.3, maxTokens: 4096 },
+    // llama-3.1-8b-instant: higher free-tier TPM (20k vs 6k) — fast, handles structured JSON well
+    { model: 'llama-3.1-8b-instant', temperature: 0.3, maxTokens: 3000 },
   );
 
   const stripped = raw
