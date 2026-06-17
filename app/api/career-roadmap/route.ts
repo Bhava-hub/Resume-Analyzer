@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { callGroq } from '@/lib/groq';
-import type { AnalysisResult, CareerRoadmap, ReferenceLink, RoadmapAdvice, RoadmapStep, StepResource } from '@/types/analysis';
+import type { AnalysisResult, CareerRoadmap, ReferenceLink, RoadmapAdvice, RoadmapStep } from '@/types/analysis';
 
 export const runtime = 'nodejs';
-// Give the pipeline enough time (HF + Groq + Apify can chain to ~45s)
+// Give the pipeline enough time (Reddit + Tavily + HF + Groq can chain to ~45s)
 export const maxDuration = 60;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const APIFY_ENDPOINT =
-  'https://api.apify.com/v2/acts/trudax~reddit-scraper-lite/run-sync-get-dataset-items';
-
-const APIFY_GOOGLE_SEARCH_ENDPOINT =
-  'https://api.apify.com/v2/acts/apify~google-search-scraper/run-sync-get-dataset-items';
+// Tavily Search API — 1,000 free searches/month, designed for AI pipelines
+// Used for both Reddit searches (include_domains) and general resource discovery
+const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
 
 const HF_SIMILARITY_URL =
   'https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2';
@@ -43,45 +41,43 @@ interface ProcessedPost {
 // ── Step 0a: Simplify complex skill names via Groq ─────────────────────────
 
 /**
- * Converts verbose resume-analysis skill gaps into simple, course-searchable
- * topic names using Groq (fast, free). Falls back to the original skill names
- * if Groq fails so the pipeline never breaks.
+ * Converts verbose resume-analysis skill gaps into simple, searchable
+ * topic names using Groq (fast, free). Works for ANY career field —
+ * tech, healthcare, archaeology, design, law, etc.
+ * Falls back to the original skill names if Groq fails.
  *
  * e.g. "transformer-based NLP fine-tuning with LoRA" → "NLP"
  *      "Kubernetes pod orchestration with Helm charts" → "Kubernetes"
+ *      "systematic field excavation techniques" → "field excavation"
+ *      "advanced perioperative nursing care" → "perioperative nursing"
  */
 async function simplifySkillsWithGroq(skills: string[]): Promise<string[]> {
   if (skills.length === 0) return [];
 
-  const prompt = `You are a skill normalization engine for a course search system.
+  const prompt = `You are a skill normalization engine for a web search system.
 
-Your job is to map resume skill gaps to canonical search terms that return real results on Coursera and Udemy.
+Your job is to shorten verbose skill gap descriptions into concise, searchable terms
+that will return real results when typed into a search engine like Google.
 
 Rules:
 - Output ONLY a valid JSON array of strings, one per input skill, in the same order.
-- Max 2 words per output term. Strictly enforced.
-- You MUST pick from the approved list below whenever possible.
-- If the skill does not match anything in the approved list, output the single most recognizable root technology or tool name only (e.g. "Spark", "Tableau", "Airflow").
-- Never output phrases like "Generation", "Analysis at scale", "Insight", "Management" alone — these are not searchable skills.
-- Never output adjectives or verbs. Only nouns or noun phrases.
-
-Approved list:
-Python, SQL, Excel, Power BI, Tableau, Statistics, Machine Learning,
-Deep Learning, NLP, Computer Vision, Data Analysis, Data Visualization,
-Pandas, NumPy, Spark, Hadoop, Airflow, dbt, AWS, Azure, Google Cloud,
-Docker, Kubernetes, React, Node.js, TypeScript, PostgreSQL, MongoDB,
-Git, Linux, REST APIs, GraphQL, TensorFlow, PyTorch, Scikit-learn,
-Business Intelligence, Data Engineering, Data Modeling, ETL, DevOps,
-System Design, Algorithms, Cybersecurity, Networking, Agile
+- Max 3 words per output term.
+- The output must work for ANY career field: tech, healthcare, law, design, archaeology, finance, education, etc.
+- If the skill is already concise (1-3 words), return it unchanged.
+- If the skill is verbose, extract the core noun phrase that a person would actually search for.
+- Do NOT map non-tech skills to tech terms. "Patient assessment" should NOT become "Data Analysis".
+- Never output vague words alone like "Management", "Analysis", "Skills", "Development" — always pair with the domain.
+- Only output nouns or noun phrases, never verbs or adjectives alone.
 
 Examples:
-"Business Insight Generation" → "Business Intelligence"
-"Large-Scale Data Analysis" → "Data Analysis"
-"Statistical Analysis" → "Statistics"
-"transformer-based NLP fine-tuning with LoRA" → "NLP"
+"transformer-based NLP fine-tuning with LoRA" → "NLP fine-tuning"
 "Kubernetes pod orchestration with Helm charts" → "Kubernetes"
-"CUDA GPU memory optimization" → "Deep Learning"
-"distributed SQL with CockroachDB" → "SQL"
+"systematic archaeological field excavation techniques" → "field excavation"
+"advanced perioperative nursing patient care" → "perioperative nursing"
+"financial statement analysis and forecasting" → "financial forecasting"
+"corporate litigation and contract drafting" → "contract drafting"
+"user experience wireframing and prototyping" → "UX prototyping"
+"Large-Scale Data Analysis" → "data analysis"
 
 Skills to simplify:
 ${JSON.stringify(skills)}`;
@@ -127,123 +123,98 @@ ${JSON.stringify(skills)}`;
   }
 }
 
-// ── Step 0b: Discover real course URLs via Apify Google Search ───────────────
+// ── Step 0b: Discover real resource URLs via Tavily Search ───────────────────
 
-interface GoogleSearchResult {
-  url?: string;  // This is the Google search URL itself — NOT a course URL
-  searchQuery?: { term?: string; query?: string } | string;
-  query?: string;
-  keyword?: string;
-  // The actual result links live here
-  organicResults?: Array<{ url?: string; title?: string; websiteTitle?: string }>;
+interface TavilyResult {
+  url: string;
+  title: string;
+  content?: string;
+  score?: number;
+}
+
+interface TavilyResponse {
+  results?: TavilyResult[];
+  answer?: string;
 }
 
 /**
- * For each skill gap (up to maxSkills), runs a Google search via Apify targeting
- * real course pages on Coursera, Udemy, or freeCodeCamp. Returns a map of
- * skill → top result URL. Falls back gracefully — if Apify fails, returns {}.
+ * For each skill gap (up to maxSkills) PLUS one role-level query, searches via
+ * Tavily — completely free (1,000/month), no domain filter, works for ANY career.
+ * Each query is a separate Tavily call (they're fast and cheap on the free tier).
+ * Falls back gracefully — if Tavily fails or key is missing, returns {}.
  */
-async function searchCoursesViaApify(
+async function searchResourcesViaTavily(
   skills: string[],
+  jobTitle: string,
   maxSkills = 3,
 ): Promise<Record<string, string>> {
-  const apifyToken = process.env.APIFY_API_TOKEN;
-  if (!apifyToken || skills.length === 0) return {};
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  if (!tavilyKey || (skills.length === 0 && !jobTitle)) return {};
 
   const targetSkills = skills.slice(0, maxSkills);
 
-  const queries = targetSkills.map(
-    (skill) =>
-      `best ${skill} course site:coursera.org OR site:udemy.com OR site:freecodecamp.org`,
+  // Skill-specific queries — open search, no platform filter
+  const skillQueries = targetSkills.map(
+    (skill): [string, string] => [skill, `best ${skill} course or training for ${jobTitle}`],
+  );
+
+  // One role-level query for general career resources
+  const roleQuery: [string, string] = [
+    `${jobTitle} career resources`,
+    `how to become a ${jobTitle} resources certifications`,
+  ];
+
+  const allQueries: [string, string][] = [...skillQueries, roleQuery];
+
+  console.log(
+    `[tavily] Searching resources for ${targetSkills.length} skills + 1 role query (job: ${jobTitle})`,
+  );
+
+  const resourceUrlMap: Record<string, string> = {};
+
+  // Run all queries in parallel — Tavily responds fast
+  await Promise.all(
+    allQueries.map(async ([topic, query]) => {
+      try {
+        const res = await fetch(TAVILY_SEARCH_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${tavilyKey}`,
+          },
+          body: JSON.stringify({
+            query,
+            search_depth: 'basic',
+            max_results: 3,
+            include_answer: false,
+          }),
+        });
+
+        if (!res.ok) {
+          const errBody = await res.text();
+          console.warn(`[tavily] HTTP ${res.status} for "${topic}":`, errBody.slice(0, 300));
+          return;
+        }
+
+        const data: TavilyResponse = await res.json();
+        const top = data.results?.[0];
+
+        if (top?.url) {
+          resourceUrlMap[topic] = top.url;
+          console.log(`[tavily] ${topic} → ${top.url}`);
+        } else {
+          console.log(`[tavily] No URL found for: ${topic}`);
+        }
+      } catch (err) {
+        console.warn(`[tavily] Error for "${topic}":`, err);
+      }
+    }),
   );
 
   console.log(
-    `[apify-search] Searching courses for ${targetSkills.length} skills: ${targetSkills.join(', ')}`,
+    `[tavily] Found ${Object.keys(resourceUrlMap).length} resource URLs for ${allQueries.length} queries`,
   );
-
-  try {
-    const res = await fetch(
-      `${APIFY_GOOGLE_SEARCH_ENDPOINT}?token=${apifyToken}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          queries: queries.join('\n'),
-          resultsPerPage: 3,
-          maxPagesPerQuery: 1,
-          languageCode: 'en',
-          countryCode: 'us',
-          mobileResults: false,
-        }),
-      },
-    );
-
-    if (!res.ok) {
-      const errBody = await res.text();
-      console.warn(`[apify-search] HTTP ${res.status} — raw error body:`, errBody.slice(0, 500));
-      return {};
-    }
-
-    const items: GoogleSearchResult[] = await res.json();
-    console.log(
-      `[apify-search] Raw response: ${items.length} items total. First 2:`,
-      JSON.stringify(items.slice(0, 2), null, 2),
-    );
-    // Show all field names on the first item so we know which query field Apify used
-    console.log('[apify-search] Sample item keys:', Object.keys(items[0] ?? {}));
-
-    const courseUrlMap: Record<string, string> = {};
-    const courseDomains = ['coursera.org', 'udemy.com', 'freecodecamp.org'];
-
-    /** Extract the query string Apify attached to a result item, regardless of field name/shape */
-    const getItemQuery = (item: GoogleSearchResult): string => {
-      if (typeof item.searchQuery === 'string') return item.searchQuery;
-      if (typeof item.searchQuery === 'object' && item.searchQuery !== null) {
-        return item.searchQuery.term ?? item.searchQuery.query ?? '';
-      }
-      return item.query ?? item.keyword ?? '';
-    };
-
-    for (let i = 0; i < targetSkills.length; i++) {
-      const skill = targetSkills[i];
-      const query = queries[i];
-
-      // Match by the searchQuery field Apify attaches — not by position
-      const skillResults = items.filter(
-        (item) => getItemQuery(item) === query,
-      );
-
-      console.log(`[apify-search] "${skill}" matched ${skillResults.length} page-level items by searchQuery`);
-
-      // Dig into organicResults — item.url is the Google search URL, not a course URL
-      const topResult = skillResults
-        .flatMap((item) => item.organicResults ?? [])
-        .find((result) => {
-          if (!result.url) return false;
-          try {
-            const host = new URL(result.url).hostname.replace(/^www\./, '');
-            return courseDomains.some((d) => host === d || host.endsWith('.' + d));
-          } catch {
-            return false;
-          }
-        });
-
-      if (topResult?.url) {
-        courseUrlMap[skill] = topResult.url;
-        console.log(`[apify-search] ${skill} → ${topResult.url}`);
-      } else {
-        console.log(`[apify-search] No course URL found for skill: ${skill}`);
-      }
-    }
-
-    console.log(
-      `[apify-search] Found ${Object.keys(courseUrlMap).length} course URLs for ${targetSkills.length} skills`,
-    );
-    return courseUrlMap;
-  } catch (err) {
-    console.warn('[apify-search] Course search error (will use fallback):', err);
-    return {};
-  }
+  return resourceUrlMap;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -263,55 +234,83 @@ function stripHtml(text: string): string {
     .trim();
 }
 
-// ── Step 1: Scrape Reddit via Apify ─────────────────────────────────────────
+// ── Step 1: Scrape Reddit via native JSON API (free, no key needed) ──────────
 
+/**
+ * Searches Reddit via Tavily (include_domains: reddit.com).
+ * This avoids Reddit's IP blocks on server/cloud environments — Tavily searches
+ * via Google/Bing indices and returns real Reddit post URLs + content snippets.
+ * Falls back to [] if TAVILY_API_KEY is not set.
+ */
 async function scrapeReddit(jobTitle: string): Promise<ApifyPost[]> {
-  const apifyToken = process.env.APIFY_API_TOKEN;
-  if (!apifyToken) return [];
-
-  const searches = [
-    `${jobTitle} career advice`,
-    `becoming a ${jobTitle}`,
-    `${jobTitle} resume tips`,
-  ];
-
-  try {
-    const res = await fetch(`${APIFY_ENDPOINT}?token=${apifyToken}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        searches,
-        searchPosts: true,
-        searchComments: false,
-        searchCommunities: false,
-        searchUsers: false,
-        skipComments: true,
-        sort: 'relevance',
-        time: 'all',
-        includeNSFW: false,
-        maxItems: 25,
-        maxPostCount: 9,
-        scrollTimeout: 25,
-        proxy: { useApifyProxy: true },
-      }),
-    });
-
-    if (!res.ok) {
-      console.warn('[reddit] HTTP error:', res.status, await res.text());
-      return [];
-    }
-
-    const items: ApifyPost[] = await res.json();
-    console.log('[reddit] Raw item count:', items.length);
-    console.log('[reddit] First item keys:', Object.keys(items[0] ?? {}));
-    console.log('[reddit] First item dataType:', items[0]?.dataType);
-    return items.filter(
-      (item) => item.dataType === 'post' && item.title && item.url,
-    );
-  } catch (err) {
-    console.warn('[reddit] Scraper error:', err);
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  if (!tavilyKey) {
+    console.warn('[reddit] TAVILY_API_KEY not set — skipping Reddit search');
     return [];
   }
+
+  const queries = [
+    `${jobTitle} career advice reddit`,
+    `how I became a ${jobTitle} reddit`,
+    `${jobTitle} resume tips reddit`,
+  ];
+
+  const allPosts: ApifyPost[] = [];
+  const seenUrls = new Set<string>();
+
+  await Promise.all(
+    queries.map(async (query) => {
+      try {
+        const res = await fetch(TAVILY_SEARCH_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${tavilyKey}`,
+          },
+          body: JSON.stringify({
+            query,
+            search_depth: 'basic',
+            max_results: 5,
+            include_domains: ['reddit.com'],
+            include_answer: false,
+          }),
+        });
+
+        if (!res.ok) {
+          console.warn(`[reddit-tavily] HTTP ${res.status} for query: "${query}"`);
+          return;
+        }
+
+        const data: TavilyResponse = await res.json();
+        const results = data.results ?? [];
+
+        for (const result of results) {
+          if (!result.url || seenUrls.has(result.url)) continue;
+          // Only accept actual Reddit post URLs (not subreddit/user pages)
+          if (!result.url.includes('/comments/')) continue;
+          seenUrls.add(result.url);
+
+          // Extract subreddit from URL: reddit.com/r/cscareerquestions/comments/...
+          const subredditMatch = result.url.match(/reddit\.com\/r\/([^/]+)/);
+          const communityName = subredditMatch ? `r/${subredditMatch[1]}` : '';
+
+          allPosts.push({
+            dataType: 'post',
+            title: result.title ?? '',
+            body: result.content ?? '',
+            url: result.url,
+            upVotes: 0,          // not available from Tavily
+            communityName,
+          });
+        }
+      } catch (err) {
+        console.warn(`[reddit-tavily] Error for query "${query}":`, err);
+      }
+    }),
+  );
+
+  console.log(`[reddit-tavily] Fetched ${allPosts.length} Reddit posts via Tavily`);
+  return allPosts;
 }
 
 // ── Step 2: HuggingFace semantic similarity — rank posts by relevance ────────
@@ -467,29 +466,16 @@ const GROQ_ROADMAP_PROMPT = (
   jobDescription: string,
   analysisResult: AnalysisResult,
   rawPosts: ApifyPost[],
-  discoveredCourseUrls: Record<string, string>,
+  discoveredResourceUrls: Record<string, string>,
 ) => {
-  const hasCourseUrls = Object.keys(discoveredCourseUrls).length > 0;
+  const hasResourceUrls = Object.keys(discoveredResourceUrls).length > 0;
 
-  const courseUrlBlock = hasCourseUrls
-    ? `IMPORTANT — Real verified course URLs found via live web search. You MUST use ONLY these URLs for course resources (do NOT invent or modify them):
-${Object.entries(discoveredCourseUrls)
-      .map(([skill, url]) => `- ${skill}: ${url}`)
+  const resourceUrlBlock = hasResourceUrls
+    ? `VERIFIED RESOURCE URLS (retrieved from live Google search — these are real and working):
+${Object.entries(discoveredResourceUrls)
+      .map(([topic, url]) => `- ${topic}: ${url}`)
       .join('\n')}`
-    : '';
-
-  const resourceRules = hasCourseUrls
-    ? `- resources per step: For skills that have a verified URL in the list above, use EXACTLY that URL (copy it character-for-character). For any other resources, use ONLY the exact root-level URLs listed here:
-  Courses/learning (fallback only): https://www.coursera.org, https://www.udemy.com, https://www.freecodecamp.org, https://www.edx.org, https://www.linkedin.com/learning, https://www.youtube.com, https://www.khanacademy.org, https://www.codecademy.com, https://frontendmasters.com, https://www.pluralsight.com
-  Docs: https://developer.mozilla.org, https://docs.python.org, https://react.dev, https://nextjs.org/docs, https://docs.djangoproject.com, https://flask.palletsprojects.com, https://nodejs.org/en/docs, https://www.typescriptlang.org/docs, https://kubernetes.io/docs, https://docs.aws.amazon.com, https://cloud.google.com/docs, https://docs.microsoft.com
-  GitHub/projects: https://github.com/sindresorhus/awesome, https://github.com/jwasham/coding-interview-university, https://github.com/kamranahmedse/developer-roadmap
-  Community: https://stackoverflow.com, https://www.reddit.com, https://dev.to, https://hashnode.com`
-    : `- resources per step: Include 1–3 resources for EACH step. Use ONLY the exact root-level URLs listed below — do NOT add any paths, slugs, or query strings:
-  Courses/learning: https://www.coursera.org, https://www.udemy.com, https://www.freecodecamp.org, https://www.edx.org, https://www.linkedin.com/learning, https://www.youtube.com, https://www.khanacademy.org, https://www.codecademy.com, https://frontendmasters.com, https://www.pluralsight.com
-  Docs: https://developer.mozilla.org, https://docs.python.org, https://react.dev, https://nextjs.org/docs, https://docs.djangoproject.com, https://flask.palletsprojects.com, https://nodejs.org/en/docs, https://www.typescriptlang.org/docs, https://kubernetes.io/docs, https://docs.aws.amazon.com, https://cloud.google.com/docs, https://docs.microsoft.com
-  GitHub/projects: https://github.com/sindresorhus/awesome, https://github.com/jwasham/coding-interview-university, https://github.com/kamranahmedse/developer-roadmap
-  Community: https://stackoverflow.com, https://www.reddit.com, https://dev.to, https://hashnode.com
-  Use the URL EXACTLY as shown above. No trailing slashes, no sub-paths. These are the only valid values.`;
+    : '(No verified resource URLs available — omit resource links from steps.)';
 
   return `
 You are a senior career coach. Create a personalized career entry roadmap.
@@ -506,7 +492,7 @@ Target role: ${jobTitle}
 Job description summary (first 500 chars):
 ${jobDescription.slice(0, 500)}
 
-${courseUrlBlock}
+${resourceUrlBlock}
 
 Raw Reddit posts (top relevant results — use for evidence and reference links):
 ${rawPosts.length > 0
@@ -530,8 +516,8 @@ Generate this exact JSON structure:
       "redditUrl": "URL of the Reddit post used (or null)",
       "resources": [
         {
-          "label": "Coursera - Machine Learning Specialization (or similar real resource name)",
-          "url": "https://www.coursera.org/specializations/machine-learning-introduction (or any real working URL)",
+          "label": "Descriptive name of the resource (max 6 words)",
+          "url": "Use ONLY a URL from the VERIFIED RESOURCE URLS list above. If no verified URL fits this step, omit this resource entirely.",
           "type": "course | docs | github | article | other"
         }
       ]
@@ -548,7 +534,7 @@ Generate this exact JSON structure:
   "referenceLinks": [
     {
       "title": "Resource name",
-      "url": "Real, working URL",
+      "url": "Use ONLY a URL from the VERIFIED RESOURCE URLS list above, or a scraped Reddit URL.",
       "type": "course | docs | community | github | article | reddit",
       "description": "1 sentence: why this is relevant to their specific missing skills",
       "isReddit": false
@@ -561,11 +547,11 @@ Rules (STRICT — keep output concise to avoid truncation):
 - action: max 8 words.
 - detail: max 2 sentences, max 30 words each.
 - redditEvidence: max 20 words or null.
-- resources: EXACTLY 1 resource per step (not 3).
+- resources: EXACTLY 1 resource per step. ONLY use URLs from the verified list. If the verified list is empty, set resources to [].
 - resource label: max 6 words.
-${resourceRules}
+- DO NOT invent, guess, or hallucinate any URL. Every URL must come from the verified list or from the Reddit posts provided above.
 - advice: EXACTLY 3 tips. tip: max 8 words. reason: max 25 words.
-- referenceLinks: EXACTLY 4 links.
+- referenceLinks: EXACTLY 4 links. Use verified URLs or Reddit URLs only.
 - description in referenceLinks: max 15 words.
 - All text: plain text only, no markdown symbols.
 `.trim();
@@ -633,201 +619,28 @@ async function generateRoadmapWithGroq(
   return parsed;
 }
 
-// ── URL normalization ────────────────────────────────────────────────────────
+// ── Dedup referenceLinks by URL ──────────────────────────────────────────────
 
 /**
- * Canonical map of allowed domains → their guaranteed-real root URL.
- *
- * Empty string '' means: drop this URL entirely (returns null from normalizeUrl).
- * This is used for course platforms — a root homepage like coursera.org is useless;
- * real course URLs only arrive via Apify-verified _verifiedCourseUrls and bypass this.
- * Docs and community sites keep their root URLs since those are genuinely useful.
+ * Removes duplicate referenceLinks by URL.
+ * All URLs in the roadmap come from Apify Google Search (real) or Reddit scrape (real),
+ * so no whitelist, normalization, or hallucination-guard is needed.
  */
-const DOMAIN_ROOT_MAP: Record<string, string> = {
-  // Course platforms — DROP hallucinated paths ('' → null → filtered out)
-  // Only Apify-verified URLs in _verifiedCourseUrls will ever show for these domains.
-  'www.coursera.org': '',
-  'coursera.org': '',
-  'www.udemy.com': '',
-  'udemy.com': '',
-  'www.freecodecamp.org': '',
-  'freecodecamp.org': '',
-  'www.edx.org': '',
-  'edx.org': '',
-  'www.linkedin.com': '',
-  'linkedin.com': '',
-  'www.youtube.com': '',
-  'youtube.com': '',
-  'www.khanacademy.org': '',
-  'khanacademy.org': '',
-  'www.codecademy.com': '',
-  'codecademy.com': '',
-  'frontendmasters.com': '',
-  'www.frontendmasters.com': '',
-  'www.pluralsight.com': '',
-  'pluralsight.com': '',
-  // Docs — root URLs are genuinely useful landing pages, keep them
-  'developer.mozilla.org': 'https://developer.mozilla.org',
-  'docs.python.org': 'https://docs.python.org',
-  'react.dev': 'https://react.dev',
-  'www.react.dev': 'https://react.dev',
-  'nextjs.org': 'https://nextjs.org/docs',
-  'www.nextjs.org': 'https://nextjs.org/docs',
-  'docs.djangoproject.com': 'https://docs.djangoproject.com',
-  'flask.palletsprojects.com': 'https://flask.palletsprojects.com',
-  'nodejs.org': 'https://nodejs.org/en/docs',
-  'www.typescriptlang.org': 'https://www.typescriptlang.org/docs',
-  'typescriptlang.org': 'https://www.typescriptlang.org/docs',
-  'kubernetes.io': 'https://kubernetes.io/docs',
-  'docs.aws.amazon.com': 'https://docs.aws.amazon.com',
-  'cloud.google.com': 'https://cloud.google.com/docs',
-  'docs.microsoft.com': 'https://docs.microsoft.com',
-  'learn.microsoft.com': 'https://learn.microsoft.com',
-  // Apache ecosystem
-  'airflow.apache.org': 'https://airflow.apache.org/docs/',
-  'spark.apache.org': 'https://spark.apache.org/docs/latest/',
-  'kafka.apache.org': 'https://kafka.apache.org/documentation/',
-  'hadoop.apache.org': 'https://hadoop.apache.org/docs/current/',
-  // Data / ML tools
-  'docs.getdbt.com': 'https://docs.getdbt.com',
-  'scikit-learn.org': 'https://scikit-learn.org/stable/',
-  'pandas.pydata.org': 'https://pandas.pydata.org/docs/',
-  'pytorch.org': 'https://pytorch.org/docs/stable/',
-  'www.tensorflow.org': 'https://www.tensorflow.org/learn',
-  'tensorflow.org': 'https://www.tensorflow.org/learn',
-  // Databases
-  'www.postgresql.org': 'https://www.postgresql.org/docs/',
-  'postgresql.org': 'https://www.postgresql.org/docs/',
-  'dev.mysql.com': 'https://dev.mysql.com/doc/',
-  'redis.io': 'https://redis.io/docs/',
-  'www.mongodb.com': 'https://www.mongodb.com/docs/',
-  'mongodb.com': 'https://www.mongodb.com/docs/',
-  // Infrastructure / DevOps
-  'developer.hashicorp.com': 'https://developer.hashicorp.com',
-  'www.terraform.io': 'https://www.terraform.io/docs',
-  'terraform.io': 'https://www.terraform.io/docs',
-  'docs.ansible.com': 'https://docs.ansible.com',
-  'docs.docker.com': 'https://docs.docker.com',
-  // Python web frameworks
-  'fastapi.tiangolo.com': 'https://fastapi.tiangolo.com',
-  'www.djangoproject.com': 'https://docs.djangoproject.com',
-  // Community — root URLs are useful browse/search hubs, keep them
-  'stackoverflow.com': 'https://stackoverflow.com',
-  'www.stackoverflow.com': 'https://stackoverflow.com',
-  'dev.to': 'https://dev.to',
-  'hashnode.com': 'https://hashnode.com',
-  // GitHub: only the three known-good awesome-lists
-  'github.com': '', // handled separately below
-};
-
-/** GitHub repos we explicitly allow — everything else collapses to github.com root. */
-const ALLOWED_GITHUB_REPOS = new Set([
-  'https://github.com/sindresorhus/awesome',
-  'https://github.com/jwasham/coding-interview-university',
-  'https://github.com/kamranahmedse/developer-roadmap',
-]);
-
-/**
- * Normalizes a single AI-generated URL:
- * - If it belongs to a known allowed domain → return the canonical root URL.
- * - If it's a GitHub URL → only allow the three whitelisted repos; else → https://github.com
- * - If it's a Reddit URL → return as-is (scraped, therefore real).
- * - Otherwise → return null (will be dropped).
- */
-// Set of real URLs discovered by Apify — these bypass root-collapse normalization
-let _verifiedCourseUrls: Set<string> = new Set();
-
-function normalizeUrl(url: string, isReddit = false): string | null {
-  if (isReddit) return url; // scraped Reddit URLs are real — keep them untouched
-
-  // URLs verified by Apify web search are real — pass them through unchanged
-  if (_verifiedCourseUrls.has(url)) return url;
-
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
-
-  const host = parsed.hostname.toLowerCase();
-
-  // Reddit links passed through a non-isReddit path (e.g. in referenceLinks)
-  if (host === 'www.reddit.com' || host === 'reddit.com') return url;
-
-  // GitHub — only whitelist specific repos
-  if (host === 'github.com') {
-    const withoutTrailing = url.replace(/\/$/, '');
-    // Match any of the allowed repos (allow sub-paths within them)
-    for (const allowed of ALLOWED_GITHUB_REPOS) {
-      if (withoutTrailing.startsWith(allowed)) return allowed;
-    }
-    return 'https://github.com';
-  }
-
-  const root = DOMAIN_ROOT_MAP[host];
-  if (root !== undefined) return root || null;
-
-  // Unknown domain — drop it
-  return null;
-}
-
-/**
- * Walks the entire roadmap and normalizes every AI-generated URL back to a
- * guaranteed-real root. Hallucinated deep paths are collapsed; unknown domains
- * are removed. Reddit URLs (scraped, therefore real) pass through unchanged.
- */
-function normalizeRoadmapUrls(
+function deduplicateReferenceLinks(
   roadmap: Omit<CareerRoadmap, 'jobTitle' | 'redditPostsUsed'>,
 ): Omit<CareerRoadmap, 'jobTitle' | 'redditPostsUsed'> {
-  const cleanedPlan = roadmap.entrancePlan.map((step) => ({
-    ...step,
-    redditUrl: step.redditUrl ? normalizeUrl(step.redditUrl, true) ?? undefined : undefined,
-    resources: (step.resources ?? [])
-      .map((r: StepResource) => {
-        const normalized = normalizeUrl(r.url);
-        return normalized ? { ...r, url: normalized } : null;
-      })
-      .filter((r): r is StepResource => r !== null),
-  }));
-
-  const cleanedAdvice = roadmap.advice.map((item) => ({
-    ...item,
-    redditUrl: item.redditUrl ? normalizeUrl(item.redditUrl, true) ?? undefined : undefined,
-  }));
-
-  const cleanedRefs = roadmap.referenceLinks
-    .map((l) => {
-      const normalized = normalizeUrl(l.url, l.isReddit);
-      return normalized ? { ...l, url: normalized } : null;
-    })
-    .filter((l): l is NonNullable<typeof l> => l !== null);
-
-  // Deduplicate referenceLinks by URL (normalization can create duplicates)
   const seenUrls = new Set<string>();
-  const dedupedRefs = cleanedRefs.filter((l) => {
-    if (seenUrls.has(l.url)) return false;
+  const dedupedRefs = roadmap.referenceLinks.filter((l) => {
+    if (!l.url || seenUrls.has(l.url)) return false;
     seenUrls.add(l.url);
     return true;
   });
 
-  const count = {
-    plan: roadmap.entrancePlan.reduce((n, s) => n + (s.resources?.length ?? 0), 0),
-    cleaned: cleanedPlan.reduce((n, s) => n + (s.resources?.length ?? 0), 0),
-  };
   console.log(
-    `[career-roadmap] URL normalization: ${count.cleaned}/${count.plan} resources kept, ` +
-    `${dedupedRefs.length}/${roadmap.referenceLinks.length} referenceLinks kept`,
+    `[career-roadmap] referenceLinks after dedup: ${dedupedRefs.length}/${roadmap.referenceLinks.length}`,
   );
 
-  return {
-    ...roadmap,
-    entrancePlan: cleanedPlan,
-    advice: cleanedAdvice,
-    referenceLinks: dedupedRefs,
-  };
+  return { ...roadmap, referenceLinks: dedupedRefs };
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
@@ -856,7 +669,7 @@ export async function POST(request: NextRequest) {
     return errorResponse('Analysis result is required.');
   }
 
-  // ── Run Step 1 (Reddit) and Step 2.5 (Course Discovery) in parallel
+  // ── Run Step 1 (Reddit) and Step 2.5 (Resource Discovery) in parallel
   // Reddit scraping starts immediately; skill simplification + Apify search
   // chain sequentially but run concurrently with Reddit to avoid extra latency.
   console.log('[career-roadmap] Step 1: Scraping Reddit…');
@@ -865,27 +678,25 @@ export async function POST(request: NextRequest) {
     .map((i) => i.point)
     .filter(Boolean);
 
-  console.log('[career-roadmap] Step 2.5: Simplifying skill names with Groq then discovering course URLs via Apify…');
+  console.log('[career-roadmap] Step 2.5: Simplifying skill names with Groq then discovering resource URLs via Tavily…');
 
-  // course discovery pipeline: simplify → search (sequential internally)
-  const courseDiscoveryPipeline = async () => {
+  // resource discovery pipeline: simplify → search (sequential internally)
+  // Works for any career — free Tavily API, open web search
+  const resourceDiscoveryPipeline = async () => {
     const simplifiedSkills = await simplifySkillsWithGroq(rawSkills.slice(0, 3));
-    return searchCoursesViaApify(simplifiedSkills, 3);
+    return searchResourcesViaTavily(simplifiedSkills, jobTitle, 3);
   };
 
-  // Reddit + course discovery run in parallel
-  const [rawPosts, discoveredCourseUrls] = await Promise.all([
+  // Reddit + resource discovery run in parallel
+  const [rawPosts, discoveredResourceUrls] = await Promise.all([
     scrapeReddit(jobTitle),
-    courseDiscoveryPipeline(),
+    resourceDiscoveryPipeline(),
   ]);
 
   console.log(`[career-roadmap] Step 1 done: ${rawPosts.length} raw posts`);
   console.log(
-    `[career-roadmap] Step 2.5 done: ${Object.keys(discoveredCourseUrls).length} course URLs discovered`,
+    `[career-roadmap] Step 2.5 done: ${Object.keys(discoveredResourceUrls).length} resource URLs discovered`,
   );
-
-  // Populate the verified URL set so normalizeUrl() passes them through
-  _verifiedCourseUrls = new Set(Object.values(discoveredCourseUrls));
 
   // ── Steps 2 & 3: HuggingFace semantic ranking (no separate Groq extract — saves one call)
   let rankedPosts: ApifyPost[] = [];
@@ -920,12 +731,12 @@ export async function POST(request: NextRequest) {
       jobDescription,
       analysisResult,
       rankedPosts,
-      discoveredCourseUrls,
+      discoveredResourceUrls,
     );
 
-    // ── Step 4: Normalize URLs — collapse hallucinated paths to real roots
-    console.log('[career-roadmap] Step 4: Normalizing resource URLs…');
-    roadmapParts = normalizeRoadmapUrls(rawRoadmap);
+    // ── Step 4: Dedup referenceLinks (all URLs are real — no normalization needed)
+    console.log('[career-roadmap] Step 4: Deduplicating reference links…');
+    roadmapParts = deduplicateReferenceLinks(rawRoadmap);
     console.log('[career-roadmap] Step 4 done ✓');
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
