@@ -539,8 +539,11 @@ function YouTubeResources({ roadmap }: { roadmap: CareerRoadmap }) {
             <IconYouTube />
           </span>
         </div>
-        <p className="text-sm font-semibold text-gray-700">No YouTube videos found</p>
-        <p className="mt-1 text-xs text-gray-400">Add a YOUTUBE_API_KEY to your environment to enable this feature.</p>
+        <p className="text-sm font-semibold text-gray-700">No YouTube videos available</p>
+        <p className="mt-1 text-xs text-gray-400">
+          This is usually caused by the YouTube API daily quota being exhausted from repeated requests.
+          Quota resets at midnight Pacific Time — try again later.
+        </p>
       </div>
     );
   }
