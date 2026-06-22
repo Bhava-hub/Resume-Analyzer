@@ -127,7 +127,7 @@ ${JSON.stringify(skills)}`;
   }
 }
 
-// ── Step 0b: Discover real resource URLs via Tavily Search ───────────────────
+// ── Step 0b: Discover step-pinned resource URLs via Tavily Search ─────────────
 
 interface TavilyResult {
   url: string;
@@ -141,44 +141,54 @@ interface TavilyResponse {
   answer?: string;
 }
 
+/** Each roadmap step gets its own targeted Tavily query → up to 2 verified URLs. */
+type StepKey = 'step1' | 'step2' | 'step3' | 'step4' | 'step5';
+type StepResourceMap = Record<StepKey, string[]>;
+
 /**
- * For each skill gap (up to maxSkills) PLUS one role-level query, searches via
- * Tavily — completely free (1,000/month), no domain filter, works for ANY career.
- * Each query is a separate Tavily call (they're fast and cheap on the free tier).
- * Falls back gracefully — if Tavily fails or key is missing, returns {}.
+ * Runs 5 step-specific Tavily searches (one per roadmap step) and returns
+ * up to 2 verified URLs per step — all in one parallel batch.
+ *
+ * Step mapping:
+ *   step1 → Foundational Skills  (learn the skill from scratch)
+ *   step2 → Tools & Practice     (hands-on exercises)
+ *   step3 → Portfolio Project    (project ideas / GitHub examples)
+ *   step4 → Resume Polish        (ATS keywords / resume tips)
+ *   step5 → Interview Prep       (interview questions / guides)
+ *
+ * Fetching 2 URLs per step costs ZERO extra API calls — we just take
+ * results[0] and results[1] from the same max_results: 3 request.
+ * Total: 5 Tavily calls per pipeline run (was 4 before).
  */
-async function searchResourcesViaTavily(
-  skills: string[],
+async function searchStepResourcesViaTavily(
+  simplifiedSkills: string[],
   jobTitle: string,
-  maxSkills = 3,
-): Promise<Record<string, string>> {
+): Promise<StepResourceMap> {
   const tavilyKey = process.env.TAVILY_API_KEY;
-  if (!tavilyKey || (skills.length === 0 && !jobTitle)) return {};
+  const empty: StepResourceMap = { step1: [], step2: [], step3: [], step4: [], step5: [] };
+  if (!tavilyKey) {
+    console.warn('[tavily-steps] TAVILY_API_KEY not set — skipping resource search');
+    return empty;
+  }
 
-  const targetSkills = skills.slice(0, maxSkills);
+  // Use top simplified skills as anchors; fall back to job title if fewer than 2
+  const skill1 = simplifiedSkills[0] ?? jobTitle;
+  const skill2 = simplifiedSkills[1] ?? skill1;
 
-  // Skill-specific queries — open search, no platform filter
-  const skillQueries = targetSkills.map(
-    (skill): [string, string] => [skill, `best ${skill} course or training for ${jobTitle}`],
-  );
-
-  // One role-level query for general career resources
-  const roleQuery: [string, string] = [
-    `${jobTitle} career resources`,
-    `how to become a ${jobTitle} resources certifications`,
+  const stepQueries: [StepKey, string][] = [
+    ['step1', `${skill1} fundamentals beginner course tutorial`],
+    ['step2', `${skill2} hands-on practice exercises tutorial`],
+    ['step3', `${jobTitle} portfolio project ideas examples github`],
+    ['step4', `${jobTitle} resume tips ATS keywords optimization`],
+    ['step5', `${jobTitle} interview questions preparation guide`],
   ];
 
-  const allQueries: [string, string][] = [...skillQueries, roleQuery];
+  console.log(`[tavily-steps] Searching step-pinned resources for: ${jobTitle}`);
 
-  console.log(
-    `[tavily] Searching resources for ${targetSkills.length} skills + 1 role query (job: ${jobTitle})`,
-  );
+  const result: StepResourceMap = { step1: [], step2: [], step3: [], step4: [], step5: [] };
 
-  const resourceUrlMap: Record<string, string> = {};
-
-  // Run all queries in parallel — Tavily responds fast
   await Promise.all(
-    allQueries.map(async ([topic, query]) => {
+    stepQueries.map(async ([stepKey, query]) => {
       try {
         const res = await fetch(TAVILY_SEARCH_URL, {
           method: 'POST',
@@ -189,36 +199,34 @@ async function searchResourcesViaTavily(
           body: JSON.stringify({
             query,
             search_depth: 'basic',
-            max_results: 3,
+            max_results: 3,   // fetch 3, take top 2 — no extra API cost
             include_answer: false,
           }),
         });
 
         if (!res.ok) {
           const errBody = await res.text();
-          console.warn(`[tavily] HTTP ${res.status} for "${topic}":`, errBody.slice(0, 300));
+          console.warn(`[tavily-steps] HTTP ${res.status} for "${stepKey}":`, errBody.slice(0, 200));
           return;
         }
 
         const data: TavilyResponse = await res.json();
-        const top = data.results?.[0];
+        const urls = (data.results ?? [])
+          .map((r) => r.url)
+          .filter(Boolean)
+          .slice(0, 2);   // ← 2 URLs per step, zero extra API calls
 
-        if (top?.url) {
-          resourceUrlMap[topic] = top.url;
-          console.log(`[tavily] ${topic} → ${top.url}`);
-        } else {
-          console.log(`[tavily] No URL found for: ${topic}`);
-        }
+        result[stepKey] = urls;
+        console.log(`[tavily-steps] ${stepKey} ("${query.slice(0, 50)}…") → ${urls.length} URLs`);
       } catch (err) {
-        console.warn(`[tavily] Error for "${topic}":`, err);
+        console.warn(`[tavily-steps] Error for "${stepKey}":`, err);
       }
     }),
   );
 
-  console.log(
-    `[tavily] Found ${Object.keys(resourceUrlMap).length} resource URLs for ${allQueries.length} queries`,
-  );
-  return resourceUrlMap;
+  const totalUrls = Object.values(result).reduce((s, urls) => s + urls.length, 0);
+  console.log(`[tavily-steps] Done — ${totalUrls} URLs across 5 steps`);
+  return result;
 }
 
 // ── Step 0c: Fetch YouTube tutorials via YouTube Data API v3 ──────────────────
@@ -627,16 +635,32 @@ const GROQ_ROADMAP_PROMPT = (
   jobDescription: string,
   analysisResult: AnalysisResult,
   rawPosts: ApifyPost[],
-  discoveredResourceUrls: Record<string, string>,
+  stepResources: StepResourceMap,
 ) => {
-  const hasResourceUrls = Object.keys(discoveredResourceUrls).length > 0;
+  // Format step-pinned URLs — each step number maps to its own curated URL(s)
+  const stepLabels: Record<StepKey, string> = {
+    step1: 'Step 1 (Foundational Skills)',
+    step2: 'Step 2 (Tools & Practice)',
+    step3: 'Step 3 (Portfolio Project)',
+    step4: 'Step 4 (Resume Polish)',
+    step5: 'Step 5 (Interview Prep)',
+  };
 
-  const resourceUrlBlock = hasResourceUrls
-    ? `VERIFIED RESOURCE URLS (retrieved from live Google search — these are real and working):
-${Object.entries(discoveredResourceUrls)
-      .map(([topic, url]) => `- ${topic}: ${url}`)
-      .join('\n')}`
-    : '(No verified resource URLs available — omit resource links from steps.)';
+  const hasAnyUrls = Object.values(stepResources).some((urls) => urls.length > 0);
+
+  // Flat list of all verified URLs (for referenceLinks)
+  const allVerifiedUrls = Object.values(stepResources).flat();
+
+  const resourceUrlBlock = hasAnyUrls
+    ? `STEP-PINNED RESOURCE URLS (verified from live web search — these are real and working):
+Each step's resource MUST come only from its own pinned URL(s). Do NOT swap URLs between steps.
+${(Object.keys(stepResources) as StepKey[]).map((key) => {
+      const urls = stepResources[key];
+      return urls.length > 0
+        ? `- ${stepLabels[key]}: ${urls.join(' | ')}`
+        : `- ${stepLabels[key]}: (none — set resources to [])` ;
+    }).join('\n')}`
+    : '(No verified resource URLs available — set resources to [] for all steps.)';
 
   return `
 You are a senior career coach. Create a personalized career entry roadmap.
@@ -678,7 +702,7 @@ Generate this exact JSON structure:
       "resources": [
         {
           "label": "Descriptive name of the resource (max 6 words)",
-          "url": "Use ONLY a URL from the VERIFIED RESOURCE URLS list above. If no verified URL fits this step, omit this resource entirely.",
+          "url": "Use ONLY the URL pinned to THIS step number from STEP-PINNED RESOURCE URLS. Step 1 uses Step 1 URL, Step 2 uses Step 2 URL, etc. If no URL is pinned to this step, omit the resource.",
           "type": "course | docs | github | article | other"
         }
       ]
@@ -695,7 +719,7 @@ Generate this exact JSON structure:
   "referenceLinks": [
     {
       "title": "Resource name",
-      "url": "Use ONLY a URL from the VERIFIED RESOURCE URLS list above, or a scraped Reddit URL.",
+      "url": "Use ONLY a URL from: ${allVerifiedUrls.join(' | ') || '(none)'} — or a Reddit URL from the posts above.",
       "type": "course | docs | community | github | article | reddit",
       "description": "1 sentence: why this is relevant to their specific missing skills",
       "isReddit": false
@@ -708,11 +732,11 @@ Rules (STRICT — keep output concise to avoid truncation):
 - action: max 8 words.
 - detail: max 2 sentences, max 30 words each.
 - redditEvidence: max 20 words or null.
-- resources: EXACTLY 1 resource per step. ONLY use URLs from the verified list. If the verified list is empty, set resources to [].
+- resources: EXACTLY 1 resource per step. Use ONLY the URL pinned to that step number. NEVER use a Step 2 URL for Step 1, etc. If a step has no pinned URL, set resources to [].
 - resource label: max 6 words.
-- DO NOT invent, guess, or hallucinate any URL. Every URL must come from the verified list or from the Reddit posts provided above.
+- DO NOT invent, guess, or hallucinate any URL. Every URL must come from the step-pinned list or Reddit posts above.
 - advice: EXACTLY 3 tips. tip: max 8 words. reason: max 25 words.
-- referenceLinks: EXACTLY 4 links. Use verified URLs or Reddit URLs only.
+- referenceLinks: EXACTLY 4 links. Use any verified URL from the step-pinned list or Reddit URLs only.
 - description in referenceLinks: max 15 words.
 - All text: plain text only, no markdown symbols.
 `.trim();
@@ -723,7 +747,7 @@ async function generateRoadmapWithGroq(
   jobDescription: string,
   analysisResult: AnalysisResult,
   rawPosts: ApifyPost[],
-  discoveredCourseUrls: Record<string, string>,
+  stepResources: StepResourceMap,
 ): Promise<Omit<CareerRoadmap, 'jobTitle' | 'redditPostsUsed'>> {
   const raw = await callGroq(
     [
@@ -734,7 +758,7 @@ async function generateRoadmapWithGroq(
       },
       {
         role: 'user',
-        content: GROQ_ROADMAP_PROMPT(jobTitle, jobDescription, analysisResult, rawPosts, discoveredCourseUrls),
+        content: GROQ_ROADMAP_PROMPT(jobTitle, jobDescription, analysisResult, rawPosts, stepResources),
       },
     ],
     // llama-3.1-8b-instant: 2 Groq calls total per pipeline (simplify + roadmap)
@@ -839,23 +863,22 @@ export async function POST(request: NextRequest) {
     .map((i) => i.point)
     .filter(Boolean);
 
-  console.log('[career-roadmap] Step 2.5: Simplifying skill names with Groq then discovering resource URLs via Tavily…');
+  console.log('[career-roadmap] Step 2.5: Simplifying skills with Groq then discovering step-pinned resources via Tavily…');
 
-  // resource discovery pipeline: simplify → search (sequential internally)
-  // Works for any career — free Tavily API, open web search
-  const resourceDiscoveryPipeline = async () => {
-    const simplifiedSkills = await simplifySkillsWithGroq(rawSkills.slice(0, 3));
-    return searchResourcesViaTavily(simplifiedSkills, jobTitle, 3);
-  };
+  // Simplify skills once and share result across both pipelines
+  const simplifiedSkills = await simplifySkillsWithGroq(rawSkills.slice(0, 3));
 
-  // YouTube pipeline: also simplify skills first, then search
-  const youtubePipeline = async () => {
-    const simplifiedSkills = await simplifySkillsWithGroq(rawSkills.slice(0, 3));
-    return searchYouTubeVideos(simplifiedSkills, jobTitle, 3);
-  };
+  // Step-pinned resource discovery: 5 targeted queries (one per roadmap step)
+  // Returns up to 2 verified URLs per step — 0 extra API calls vs fetching max_results:3
+  const resourceDiscoveryPipeline = () =>
+    searchStepResourcesViaTavily(simplifiedSkills, jobTitle);
 
-  // Reddit + resource discovery + YouTube run in parallel
-  const [rawPosts, discoveredResourceUrls, youtubeVideos] = await Promise.all([
+  // YouTube pipeline uses the same simplified skills
+  const youtubePipeline = () =>
+    searchYouTubeVideos(simplifiedSkills, jobTitle, 3);
+
+  // Reddit + step-pinned resources + YouTube run in parallel
+  const [rawPosts, stepResources, youtubeVideos] = await Promise.all([
     scrapeReddit(jobTitle),
     resourceDiscoveryPipeline(),
     youtubePipeline(),
@@ -899,7 +922,7 @@ export async function POST(request: NextRequest) {
       jobDescription,
       analysisResult,
       rankedPosts,
-      discoveredResourceUrls,
+      stepResources,
     );
 
     // ── Step 4: Dedup referenceLinks (all URLs are real — no normalization needed)
