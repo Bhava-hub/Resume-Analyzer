@@ -19,6 +19,9 @@ interface GroqResponse {
   }>;
 }
 
+/** Sleep for `ms` milliseconds. */
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export async function callGroq(
   messages: GroqMessage[],
   options: {
@@ -26,6 +29,7 @@ export async function callGroq(
     temperature?: number;
     maxTokens?: number;
   } = {},
+  _retries = 2,   // auto-retry up to 2 times on 429
 ): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY environment variable is not set.');
@@ -43,6 +47,22 @@ export async function callGroq(
       max_tokens: options.maxTokens ?? 2048,
     }),
   });
+
+  // ── Rate limit: wait and retry ────────────────────────────────────────────
+  if (res.status === 429 && _retries > 0) {
+    // Groq sends `retry-after` in seconds (float); fall back to 10s
+    const retryAfterHeader = res.headers.get('retry-after');
+    const waitMs = retryAfterHeader
+      ? Math.ceil(parseFloat(retryAfterHeader) * 1000) + 500  // +500ms buffer
+      : 10_000;
+
+    const errText = await res.text();
+    console.warn(
+      `[groq] 429 rate limit — waiting ${waitMs}ms then retrying (${_retries} retries left). ${errText.slice(0, 120)}`,
+    );
+    await sleep(waitMs);
+    return callGroq(messages, options, _retries - 1);
+  }
 
   if (!res.ok) {
     const errText = await res.text();

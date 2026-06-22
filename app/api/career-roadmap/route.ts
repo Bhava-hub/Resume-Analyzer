@@ -761,9 +761,10 @@ async function generateRoadmapWithGroq(
         content: GROQ_ROADMAP_PROMPT(jobTitle, jobDescription, analysisResult, rawPosts, stepResources),
       },
     ],
-    // llama-3.1-8b-instant: 2 Groq calls total per pipeline (simplify + roadmap)
-    // maxTokens 3500 — concise prompt rules above keep actual output well under this
-    { model: 'llama-3.1-8b-instant', temperature: 0.3, maxTokens: 3500 },
+    // llama-3.1-8b-instant TPM limit: 6000 tokens/min (free tier)
+    // simplify call uses ~400 tokens; roadmap output rarely exceeds 1500 tokens.
+    // Keeping maxTokens at 2000 leaves headroom and avoids 429s on rapid requests.
+    { model: 'llama-3.1-8b-instant', temperature: 0.3, maxTokens: 2000 },
   );
 
   const stripped = raw
