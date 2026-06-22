@@ -886,7 +886,7 @@ export async function POST(request: NextRequest) {
 
   console.log(`[career-roadmap] Step 1 done: ${rawPosts.length} raw posts`);
   console.log(
-    `[career-roadmap] Step 2.5 done: ${Object.keys(discoveredResourceUrls).length} resource URLs, ${youtubeVideos.length} YouTube videos`,
+    `[career-roadmap] Step 2.5 done: ${Object.values(stepResources).flat().length} step-pinned URLs, ${youtubeVideos.length} YouTube videos`,
   );
 
   // ── Steps 2 & 3: HuggingFace semantic ranking (no separate Groq extract — saves one call)
