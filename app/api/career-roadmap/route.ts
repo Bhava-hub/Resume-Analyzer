@@ -266,11 +266,12 @@ async function searchYouTubeVideos(
 
   const targetSkills = skills.slice(0, maxSkills);
 
-  // Skill-level queries + one role-level query
+  // Skill-level queries — NO job title in skill queries to keep results on-topic.
+  // Including job title caused YouTube to return general career videos under skill headings.
   const topicQueries: [string, string][] = [
     ...targetSkills.map((skill): [string, string] => [
       skill,
-      `${skill} tutorial for ${jobTitle}`,
+      `${skill} tutorial beginner guide`,
     ]),
     [jobTitle, `how to become a ${jobTitle} career guide`],
   ];
@@ -292,7 +293,7 @@ async function searchYouTubeVideos(
           q: query,
           type: 'video',
           // Removed videoDuration filter — 'medium' was too restrictive for niche roles
-          maxResults: '5',
+          maxResults: '8',
           order: 'relevance',
           publishedAfter,
           key: ytKey,
@@ -306,9 +307,11 @@ async function searchYouTubeVideos(
 
         const searchData = await searchRes.json() as { items?: YouTubeSearchItem[] };
         const items = searchData.items ?? [];
+        // Collect all video IDs — dedup against seenVideoIds happens in Step C
+        // (checking here is ineffective since all topics run in parallel via Promise.all)
         const videoIds = items
           .map((item) => item.id?.videoId)
-          .filter((id): id is string => !!id && !seenVideoIds.has(id));
+          .filter((id): id is string => !!id);
 
         if (videoIds.length === 0) return;
 
