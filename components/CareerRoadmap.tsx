@@ -6,6 +6,7 @@ import type {
   CareerRoadmapStatus,
   ReferenceLink,
   ReferenceLinkType,
+  YouTubeVideo,
 } from '@/types/analysis';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,6 +57,14 @@ function IconExternal() {
   );
 }
 
+function IconYouTube() {
+  return (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+    </svg>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,6 +76,7 @@ const LINK_TYPE_META: Record<ReferenceLinkType, { label: string; color: string }
   github:    { label: 'GitHub',     color: 'bg-gray-100 text-gray-700' },
   article:   { label: 'Article',    color: 'bg-amber-50 text-amber-700' },
   reddit:    { label: 'Reddit',     color: 'bg-orange-50 text-orange-700' },
+  youtube:   { label: 'YouTube',    color: 'bg-red-50 text-red-700' },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -458,10 +468,135 @@ function LoadingState() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// YouTube Resources panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return n > 0 ? String(n) : '';
+}
+
+function YouTubeVideoCard({ video }: { video: YouTubeVideo }) {
+  return (
+    <a
+      href={video.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition-all hover:border-red-200 hover:shadow-md"
+    >
+      {/* Thumbnail */}
+      <div className="relative aspect-video w-full overflow-hidden bg-gray-100">
+        {video.thumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={video.thumbnailUrl}
+            alt={video.title}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <span className="text-4xl">▶️</span>
+          </div>
+        )}
+        {/* Play overlay */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600/90 shadow-lg">
+            <svg className="h-5 w-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {/* Info */}
+      <div className="flex flex-1 flex-col gap-1.5 p-3">
+        <p className="text-sm font-semibold text-gray-800 leading-snug line-clamp-2 group-hover:text-red-700 transition-colors">
+          {video.title}
+        </p>
+        <p className="text-xs text-gray-500">{video.channelTitle}</p>
+        {video.viewCount > 0 && (
+          <p className="text-xs text-gray-400 flex items-center gap-1">
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+            </svg>
+            {formatCount(video.viewCount)} likes
+          </p>
+        )}
+      </div>
+    </a>
+  );
+}
+
+function YouTubeResources({ roadmap }: { roadmap: CareerRoadmap }) {
+  const videos = roadmap.youtubeVideos ?? [];
+
+  if (videos.length === 0) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+        <div className="mb-3 flex justify-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-500">
+            <IconYouTube />
+          </span>
+        </div>
+        <p className="text-sm font-semibold text-gray-700">No YouTube videos found</p>
+        <p className="mt-1 text-xs text-gray-400">Add a YOUTUBE_API_KEY to your environment to enable this feature.</p>
+      </div>
+    );
+  }
+
+  // Group videos by topic
+  const byTopic = videos.reduce<Record<string, YouTubeVideo[]>>((acc, v) => {
+    (acc[v.topic] ??= []).push(v);
+    return acc;
+  }, {});
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-red-100 bg-white shadow-sm">
+      <div className="flex items-center gap-3 bg-red-600 px-5 py-4 text-white">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/20">
+          <IconYouTube />
+        </span>
+        <div>
+          <h3 className="text-sm font-bold">YouTube Learning Resources</h3>
+          <p className="text-xs opacity-80">
+            {videos.length} video{videos.length !== 1 ? 's' : ''} matched to your skill gaps — sorted by likes, last 3 years
+          </p>
+        </div>
+      </div>
+
+      <div className="divide-y divide-gray-100">
+        {Object.entries(byTopic).map(([topic, topicVideos]) => (
+          <div key={topic} className="px-5 py-5">
+            {/* Topic heading — explains what this section helps with */}
+            <div className="mb-3 flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-1 14v-4H7l5-8v4h4l-5 8z"/>
+                </svg>
+              </span>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Helps you learn: <span className="text-red-600 normal-case capitalize">{topic}</span>
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {topicVideos.map((video) => (
+                <YouTubeVideoCard key={video.videoId} video={video} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tab bar
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Tab = 'plan' | 'advice' | 'links';
+type Tab = 'plan' | 'advice' | 'links' | 'videos';
 
 function TabBtn({
   id,
@@ -558,7 +693,7 @@ export default function CareerRoadmap({ roadmap, status, error }: Props) {
       {status === 'success' && roadmap && (
         <>
           {/* Tabs */}
-          <div className="mb-5 flex gap-2 rounded-xl border border-gray-200 bg-gray-50 p-1.5">
+          <div className="mb-5 flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-gray-50 p-1.5">
             <TabBtn
               id="roadmap-tab-plan"
               active={tab === 'plan'}
@@ -586,6 +721,15 @@ export default function CareerRoadmap({ roadmap, status, error }: Props) {
               count={roadmap.referenceLinks.filter((l) => l.isReddit).length}
               accentActive="bg-orange-500 text-white shadow-sm"
             />
+            <TabBtn
+              id="roadmap-tab-videos"
+              active={tab === 'videos'}
+              onClick={() => setTab('videos')}
+              icon={<IconYouTube />}
+              label="Videos"
+              count={roadmap.youtubeVideos?.length ?? 0}
+              accentActive="bg-red-600 text-white shadow-sm"
+            />
           </div>
 
           {/* Reddit evidence note */}
@@ -603,10 +747,11 @@ export default function CareerRoadmap({ roadmap, status, error }: Props) {
           {tab === 'plan' && <EntrancePlan roadmap={roadmap} />}
           {tab === 'advice' && <KeyAdvice roadmap={roadmap} />}
           {tab === 'links' && <RealLifeStories roadmap={roadmap} />}
+          {tab === 'videos' && <YouTubeResources roadmap={roadmap} />}
 
           {/* Footer */}
           <p className="mt-4 text-xs text-gray-400">
-            Pipeline: Apify (Reddit) → HuggingFace (semantic ranking) → Groq/Llama 3 (roadmap generation)
+            Pipeline: Tavily (Reddit + resources) · YouTube Data API v3 · HuggingFace (semantic ranking) · Groq/Llama 3 (roadmap generation)
           </p>
         </>
       )}

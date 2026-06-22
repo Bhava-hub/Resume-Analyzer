@@ -53,7 +53,7 @@ export type RedditStatus = 'idle' | 'loading' | 'success' | 'error';
 export interface StepResource {
   label: string;
   url: string;
-  type: 'course' | 'docs' | 'github' | 'article' | 'other';
+  type: 'course' | 'docs' | 'github' | 'article' | 'other' | 'youtube';
 }
 
 export interface RoadmapStep {
@@ -72,7 +72,7 @@ export interface RoadmapAdvice {
   redditUrl?: string;
 }
 
-export type ReferenceLinkType = 'course' | 'docs' | 'community' | 'github' | 'article' | 'reddit';
+export type ReferenceLinkType = 'course' | 'docs' | 'community' | 'github' | 'article' | 'reddit' | 'youtube';
 
 export interface ReferenceLink {
   title: string;
@@ -88,12 +88,27 @@ export interface ReferenceLink {
   upVotes?: number;
 }
 
+// ── YouTube Videos ───────────────────────────────────────────────────────────
+
+export interface YouTubeVideo {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string;
+  url: string;              // https://www.youtube.com/watch?v={videoId}
+  viewCount: number;
+  publishedAt: string;      // ISO-8601
+  /** The skill/topic this video was searched for — used as section heading */
+  topic: string;
+}
+
 export interface CareerRoadmap {
   jobTitle: string;
   entrancePlan: RoadmapStep[];
   advice: RoadmapAdvice[];
   referenceLinks: ReferenceLink[];
-  redditPostsUsed: number;   // how many Reddit posts informed this roadmap
+  youtubeVideos: YouTubeVideo[];   // Role-specific YouTube tutorials, sorted by recency + views
+  redditPostsUsed: number;         // how many Reddit posts informed this roadmap
 }
 
 export type CareerRoadmapStatus = 'idle' | 'loading' | 'success' | 'error';

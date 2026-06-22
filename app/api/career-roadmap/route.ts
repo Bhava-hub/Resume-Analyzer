@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { callGroq } from '@/lib/groq';
-import type { AnalysisResult, CareerRoadmap, ReferenceLink, RoadmapAdvice, RoadmapStep } from '@/types/analysis';
+import type { AnalysisResult, CareerRoadmap, ReferenceLink, RoadmapAdvice, RoadmapStep, YouTubeVideo } from '@/types/analysis';
 
 export const runtime = 'nodejs';
 // Give the pipeline enough time (Reddit + Tavily + HF + Groq can chain to ~45s)
@@ -11,6 +11,10 @@ export const maxDuration = 60;
 // Tavily Search API — 1,000 free searches/month, designed for AI pipelines
 // Used for both Reddit searches (include_domains) and general resource discovery
 const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
+
+// YouTube Data API v3
+const YOUTUBE_SEARCH_URL = 'https://www.googleapis.com/youtube/v3/search';
+const YOUTUBE_VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos';
 
 const HF_SIMILARITY_URL =
   'https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2';
@@ -215,6 +219,152 @@ async function searchResourcesViaTavily(
     `[tavily] Found ${Object.keys(resourceUrlMap).length} resource URLs for ${allQueries.length} queries`,
   );
   return resourceUrlMap;
+}
+
+// ── Step 0c: Fetch YouTube tutorials via YouTube Data API v3 ──────────────────
+
+interface YouTubeSearchItem {
+  id?: { videoId?: string };
+  snippet?: {
+    title?: string;
+    channelTitle?: string;
+    publishedAt?: string;
+    thumbnails?: { medium?: { url?: string }; high?: { url?: string } };
+  };
+}
+
+interface YouTubeVideoItem {
+  id?: string;
+  statistics?: { viewCount?: string; likeCount?: string };
+}
+
+/**
+ * For each skill (up to maxSkills) and the job title itself, searches YouTube
+ * via the official Data API v3 (free: 10,000 units/day, a search = 100 units).
+ * Videos are sorted by relevance, then re-ranked by likeCount descending
+ * (recency filter: only videos from the last 3 years).
+ * Falls back to [] if YOUTUBE_API_KEY is not configured.
+ */
+async function searchYouTubeVideos(
+  skills: string[],
+  jobTitle: string,
+  maxSkills = 3,
+): Promise<YouTubeVideo[]> {
+  const ytKey = process.env.YOUTUBE_API_KEY;
+  if (!ytKey) {
+    console.warn('[youtube] YOUTUBE_API_KEY not set — skipping YouTube search');
+    return [];
+  }
+
+  const targetSkills = skills.slice(0, maxSkills);
+
+  // Skill-level queries + one role-level query
+  const topicQueries: [string, string][] = [
+    ...targetSkills.map((skill): [string, string] => [
+      skill,
+      `${skill} tutorial for ${jobTitle}`,
+    ]),
+    [jobTitle, `how to become a ${jobTitle} career guide`],
+  ];
+
+  // Only return videos published within the last 3 years
+  const publishedAfter = new Date(
+    Date.now() - 3 * 365.25 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const allVideos: YouTubeVideo[] = [];
+  const seenVideoIds = new Set<string>();
+
+  await Promise.all(
+    topicQueries.map(async ([topic, query]) => {
+      try {
+        // Step A: Search for video IDs
+        const searchParams = new URLSearchParams({
+          part: 'snippet',
+          q: query,
+          type: 'video',
+          videoDuration: 'medium',   // 4–20 min — not clips, not multi-hour lectures
+          maxResults: '5',
+          order: 'relevance',
+          publishedAfter,
+          key: ytKey,
+        });
+
+        const searchRes = await fetch(`${YOUTUBE_SEARCH_URL}?${searchParams}`);
+        if (!searchRes.ok) {
+          console.warn(`[youtube] Search HTTP ${searchRes.status} for "${topic}"`);
+          return;
+        }
+
+        const searchData = await searchRes.json() as { items?: YouTubeSearchItem[] };
+        const items = searchData.items ?? [];
+        const videoIds = items
+          .map((item) => item.id?.videoId)
+          .filter((id): id is string => !!id && !seenVideoIds.has(id));
+
+        if (videoIds.length === 0) return;
+
+        // Step B: Fetch statistics (view count, like count) for those videos
+        const statsParams = new URLSearchParams({
+          part: 'statistics',
+          id: videoIds.join(','),
+          key: ytKey,
+        });
+
+        const statsRes = await fetch(`${YOUTUBE_VIDEOS_URL}?${statsParams}`);
+        const statsData = statsRes.ok
+          ? (await statsRes.json() as { items?: YouTubeVideoItem[] })
+          : { items: [] };
+
+        const statsMap = new Map<string, number>();
+        for (const stat of statsData.items ?? []) {
+          if (stat.id) {
+            statsMap.set(stat.id, parseInt(stat.statistics?.likeCount ?? '0', 10));
+          }
+        }
+
+        // Step C: Build video objects sorted by like count
+        const topicVideos: YouTubeVideo[] = items
+          .filter((item) => {
+            const vid = item.id?.videoId;
+            return vid && !seenVideoIds.has(vid);
+          })
+          .map((item) => {
+            const vid = item.id!.videoId!;
+            const snippet = item.snippet ?? {};
+            return {
+              videoId: vid,
+              title: snippet.title ?? '',
+              channelTitle: snippet.channelTitle ?? '',
+              thumbnailUrl:
+                snippet.thumbnails?.high?.url ??
+                snippet.thumbnails?.medium?.url ??
+                '',
+              url: `https://www.youtube.com/watch?v=${vid}`,
+              viewCount: statsMap.get(vid) ?? 0,
+              publishedAt: snippet.publishedAt ?? '',
+              topic,
+            };
+          })
+          // Sort by like count — best quality first
+          .sort((a, b) => b.viewCount - a.viewCount)
+          // Take top 2 per topic
+          .slice(0, 2);
+
+        for (const video of topicVideos) {
+          seenVideoIds.add(video.videoId);
+          allVideos.push(video);
+        }
+
+        console.log(`[youtube] "${topic}" → ${topicVideos.length} videos`);
+      } catch (err) {
+        console.warn(`[youtube] Error for "${topic}":`, err);
+      }
+    }),
+  );
+
+  console.log(`[youtube] Total: ${allVideos.length} videos across ${topicQueries.length} topics`);
+  return allVideos;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -687,15 +837,22 @@ export async function POST(request: NextRequest) {
     return searchResourcesViaTavily(simplifiedSkills, jobTitle, 3);
   };
 
-  // Reddit + resource discovery run in parallel
-  const [rawPosts, discoveredResourceUrls] = await Promise.all([
+  // YouTube pipeline: also simplify skills first, then search
+  const youtubePipeline = async () => {
+    const simplifiedSkills = await simplifySkillsWithGroq(rawSkills.slice(0, 3));
+    return searchYouTubeVideos(simplifiedSkills, jobTitle, 3);
+  };
+
+  // Reddit + resource discovery + YouTube run in parallel
+  const [rawPosts, discoveredResourceUrls, youtubeVideos] = await Promise.all([
     scrapeReddit(jobTitle),
     resourceDiscoveryPipeline(),
+    youtubePipeline(),
   ]);
 
   console.log(`[career-roadmap] Step 1 done: ${rawPosts.length} raw posts`);
   console.log(
-    `[career-roadmap] Step 2.5 done: ${Object.keys(discoveredResourceUrls).length} resource URLs discovered`,
+    `[career-roadmap] Step 2.5 done: ${Object.keys(discoveredResourceUrls).length} resource URLs, ${youtubeVideos.length} YouTube videos`,
   );
 
   // ── Steps 2 & 3: HuggingFace semantic ranking (no separate Groq extract — saves one call)
@@ -753,6 +910,7 @@ export async function POST(request: NextRequest) {
   const roadmap: CareerRoadmap = {
     jobTitle,
     redditPostsUsed: rankedPosts.length,
+    youtubeVideos,
     ...roadmapParts,
   };
 
