@@ -324,7 +324,10 @@ async function searchYouTubeVideos(
           }
         }
 
-        // Step C: Build video objects sorted by like count
+        // Step C: Build video objects, filter by keyword relevance, sort by view count
+        // Split topic into keywords (e.g. "DevOps" → ["devops"], "NLP fine-tuning" → ["nlp","fine-tuning"])
+        const topicKeywords = topic.toLowerCase().split(/[\s\-_]+/).filter(Boolean);
+
         const topicVideos: YouTubeVideo[] = items
           .filter((item) => {
             const vid = item.id?.videoId;
@@ -346,6 +349,13 @@ async function searchYouTubeVideos(
               publishedAt: snippet.publishedAt ?? '',
               topic,
             };
+          })
+          // ── Keyword relevance guard ──────────────────────────────────────
+          // Ensure video title OR channel name contains at least one topic keyword.
+          // Prevents off-topic videos (e.g. general "career advice" appearing under "DevOps").
+          .filter((video) => {
+            const haystack = `${video.title} ${video.channelTitle}`.toLowerCase();
+            return topicKeywords.some((kw) => haystack.includes(kw));
           })
           // Sort by view count descending — most-watched first
           .sort((a, b) => b.viewCount - a.viewCount)
