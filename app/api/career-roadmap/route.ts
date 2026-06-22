@@ -267,9 +267,9 @@ async function searchYouTubeVideos(
     [jobTitle, `how to become a ${jobTitle} career guide`],
   ];
 
-  // Only return videos published within the last 3 years
+  // Only return videos published within the last 5 years (broader to avoid empty results)
   const publishedAfter = new Date(
-    Date.now() - 3 * 365.25 * 24 * 60 * 60 * 1000,
+    Date.now() - 5 * 365.25 * 24 * 60 * 60 * 1000,
   ).toISOString();
 
   const allVideos: YouTubeVideo[] = [];
@@ -283,7 +283,7 @@ async function searchYouTubeVideos(
           part: 'snippet',
           q: query,
           type: 'video',
-          videoDuration: 'medium',   // 4–20 min — not clips, not multi-hour lectures
+          // Removed videoDuration filter — 'medium' was too restrictive for niche roles
           maxResults: '5',
           order: 'relevance',
           publishedAfter,
@@ -304,7 +304,7 @@ async function searchYouTubeVideos(
 
         if (videoIds.length === 0) return;
 
-        // Step B: Fetch statistics (view count, like count) for those videos
+        // Step B: Fetch view count statistics for those videos
         const statsParams = new URLSearchParams({
           part: 'statistics',
           id: videoIds.join(','),
@@ -319,7 +319,8 @@ async function searchYouTubeVideos(
         const statsMap = new Map<string, number>();
         for (const stat of statsData.items ?? []) {
           if (stat.id) {
-            statsMap.set(stat.id, parseInt(stat.statistics?.likeCount ?? '0', 10));
+            // Use viewCount (always public) instead of likeCount (often hidden by creators)
+            statsMap.set(stat.id, parseInt(stat.statistics?.viewCount ?? '0', 10));
           }
         }
 
@@ -346,7 +347,7 @@ async function searchYouTubeVideos(
               topic,
             };
           })
-          // Sort by like count — best quality first
+          // Sort by view count descending — most-watched first
           .sort((a, b) => b.viewCount - a.viewCount)
           // Take top 2 per topic
           .slice(0, 2);
