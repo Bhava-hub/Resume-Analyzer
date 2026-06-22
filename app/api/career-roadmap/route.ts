@@ -911,8 +911,8 @@ export async function POST(request: NextRequest) {
   const roadmap: CareerRoadmap = {
     jobTitle,
     redditPostsUsed: rankedPosts.length,
-    youtubeVideos,
     ...roadmapParts,
+    youtubeVideos,   // must come AFTER spread — roadmapParts has youtubeVideos: [] placeholder
   };
 
   console.log('[career-roadmap] Done ✓');
