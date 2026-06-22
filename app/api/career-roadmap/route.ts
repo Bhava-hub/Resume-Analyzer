@@ -766,7 +766,7 @@ async function generateRoadmapWithGroq(
     }
   }
 
-  return parsed;
+  return { ...parsed, youtubeVideos: [] };
 }
 
 // ── Dedup referenceLinks by URL ──────────────────────────────────────────────
