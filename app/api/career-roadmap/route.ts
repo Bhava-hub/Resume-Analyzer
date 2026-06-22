@@ -268,12 +268,14 @@ async function searchYouTubeVideos(
 
   // Skill-level queries — NO job title in skill queries to keep results on-topic.
   // Including job title caused YouTube to return general career videos under skill headings.
-  const topicQueries: [string, string][] = [
-    ...targetSkills.map((skill): [string, string] => [
+  // isRoleTopic=true for the job-title query: keyword filter is skipped (query is specific enough).
+  const topicQueries: [string, string, boolean][] = [
+    ...targetSkills.map((skill): [string, string, boolean] => [
       skill,
       `${skill} tutorial beginner guide`,
+      false,  // skill topic — apply keyword filter
     ]),
-    [jobTitle, `how to become a ${jobTitle} career guide`],
+    [jobTitle, `how to become a ${jobTitle} career guide`, true],  // role topic — skip filter
   ];
 
   // Only return videos published within the last 5 years (broader to avoid empty results)
@@ -285,7 +287,7 @@ async function searchYouTubeVideos(
   const seenVideoIds = new Set<string>();
 
   await Promise.all(
-    topicQueries.map(async ([topic, query]) => {
+    topicQueries.map(async ([topic, query, isRoleTopic]) => {
       try {
         // Step A: Search for video IDs
         const searchParams = new URLSearchParams({
@@ -370,15 +372,17 @@ async function searchYouTubeVideos(
               topic,
             };
           })
-          // ── Keyword relevance guard (stem-based) ─────────────────────────
-          // At least one topic keyword must appear (exact for short/acronyms, stem for long).
+          // ── Keyword relevance guard (stem-based, skill topics only) ──────
+          // Role-level topic skips this: its query is already specific enough
+          // ("how to become a ${jobTitle} career guide"), so all results are relevant.
+          // Skill topics filter by stem to prevent off-topic career-advice videos.
           .filter((video) => {
+            if (isRoleTopic) return true;   // role query: trust YouTube's relevance
             const haystack = `${video.title} ${video.channelTitle}`.toLowerCase();
             return topicKeywords.some((kw) => {
-              const match = kw.length <= 4
+              return kw.length <= 4
                 ? haystack.includes(kw)              // acronym: exact ("gis", "nlp", "aws")
                 : haystack.includes(kw.slice(0, 6)); // stem: "archae", "develo", "excava"
-              return match;
             });
           })
           // Sort by view count descending — most-watched first
