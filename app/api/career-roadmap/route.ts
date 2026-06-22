@@ -333,8 +333,17 @@ async function searchYouTubeVideos(
         }
 
         // Step C: Build video objects, filter by keyword relevance, sort by view count
-        // Split topic into keywords (e.g. "DevOps" → ["devops"], "NLP fine-tuning" → ["nlp","fine-tuning"])
-        const topicKeywords = topic.toLowerCase().split(/[\s\-_]+/).filter(Boolean);
+        //
+        // Stem matching strategy:
+        //   - Short keywords ≤4 chars (acronyms like "gis", "nlp", "web"):  exact match
+        //   - Longer keywords: use first 6 chars as a stem so that
+        //     "archaeolog" matches "archaeology", "archaeological", "archaeologist"
+        //     "develo"    matches "developer", "development", "developing"
+        //     "excava"    matches "excavation", "excavations", "excavated"
+        const topicKeywords = topic
+          .toLowerCase()
+          .split(/[\s\-_]+/)
+          .filter((kw) => kw.length >= 2);   // skip empty/single-char tokens
 
         const topicVideos: YouTubeVideo[] = items
           .filter((item) => {
@@ -358,17 +367,21 @@ async function searchYouTubeVideos(
               topic,
             };
           })
-          // ── Keyword relevance guard ──────────────────────────────────────
-          // Ensure video title OR channel name contains at least one topic keyword.
-          // Prevents off-topic videos (e.g. general "career advice" appearing under "DevOps").
+          // ── Keyword relevance guard (stem-based) ─────────────────────────
+          // At least one topic keyword must appear (exact for short/acronyms, stem for long).
           .filter((video) => {
             const haystack = `${video.title} ${video.channelTitle}`.toLowerCase();
-            return topicKeywords.some((kw) => haystack.includes(kw));
+            return topicKeywords.some((kw) => {
+              const match = kw.length <= 4
+                ? haystack.includes(kw)              // acronym: exact ("gis", "nlp", "aws")
+                : haystack.includes(kw.slice(0, 6)); // stem: "archae", "develo", "excava"
+              return match;
+            });
           })
           // Sort by view count descending — most-watched first
           .sort((a, b) => b.viewCount - a.viewCount)
-          // Take top 2 per topic
-          .slice(0, 2);
+          // Take top 3 per topic (4 topics × 3 = up to 12 videos total)
+          .slice(0, 3);
 
         for (const video of topicVideos) {
           seenVideoIds.add(video.videoId);
