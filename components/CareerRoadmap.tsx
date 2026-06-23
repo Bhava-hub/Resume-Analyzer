@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type {
   CareerRoadmap,
   CareerRoadmapStatus,
@@ -10,246 +10,218 @@ import type {
 } from '@/types/analysis';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Icons
-// ─────────────────────────────────────────────────────────────────────────────
-
-function IconMap() {
-  return (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-    </svg>
-  );
-}
-
-function IconBulb() {
-  return (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-    </svg>
-  );
-}
-
-function IconLink() {
-  return (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-    </svg>
-  );
-}
-
-function IconReddit() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-      <path d="M10 0C4.478 0 0 4.478 0 10s4.478 10 10 10 10-4.478 10-10S15.522 0 10 0zm6 10.003c0 .249-.018.493-.052.733a1.5 1.5 0 11-1.697-2.377 1.5 1.5 0 011.697 2.377c.034-.24.052-.484.052-.733zM6.5 9a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm7 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm-3.5 4.75c-1.655 0-3.077-.636-3.896-1.597a.5.5 0 01.77-.638c.624.752 1.745 1.235 3.126 1.235s2.502-.483 3.126-1.235a.5.5 0 01.77.638c-.819.961-2.24 1.597-3.896 1.597z" />
-    </svg>
-  );
-}
-
-function IconExternal() {
-  return (
-    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-    </svg>
-  );
-}
-
-function IconYouTube() {
-  return (
-    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-    </svg>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const LINK_TYPE_META: Record<ReferenceLinkType, { label: string; color: string }> = {
-  course:    { label: 'Course',     color: 'bg-purple-50 text-purple-700' },
-  docs:      { label: 'Docs',       color: 'bg-blue-50 text-blue-700' },
-  community: { label: 'Community',  color: 'bg-green-50 text-green-700' },
-  github:    { label: 'GitHub',     color: 'bg-gray-100 text-gray-700' },
-  article:   { label: 'Article',    color: 'bg-amber-50 text-amber-700' },
-  reddit:    { label: 'Reddit',     color: 'bg-orange-50 text-orange-700' },
-  youtube:   { label: 'YouTube',    color: 'bg-red-50 text-red-700' },
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return n > 0 ? String(n) : '';
+}
+
+const LINK_TYPE_META: Record<ReferenceLinkType, { label: string; cls: string }> = {
+  course: { label: 'Course', cls: 'bg-primary-fixed text-on-primary-fixed-variant' },
+  docs: { label: 'Docs', cls: 'bg-secondary-fixed text-on-secondary-fixed' },
+  community: { label: 'Community', cls: 'bg-primary-fixed/60 text-primary' },
+  github: { label: 'GitHub', cls: 'bg-surface-container-high text-on-surface-variant' },
+  article: { label: 'Article', cls: 'bg-tertiary-fixed text-on-tertiary-fixed-variant' },
+  reddit: { label: 'Reddit', cls: 'bg-error-container/60 text-on-error-container' },
+  youtube: { label: 'YouTube', cls: 'bg-error-container text-error' },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sub-components
+// Roadmap step labels
 // ─────────────────────────────────────────────────────────────────────────────
 
-function RedditBadge({ url }: { url: string }) {
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-2 flex items-start gap-1.5 rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-xs text-orange-700 hover:bg-orange-100 transition-colors"
-    >
-      <span className="mt-0.5 shrink-0"><IconReddit /></span>
-      <span className="italic leading-relaxed">Real evidence from Reddit → click to read the full post</span>
-      <span className="ml-auto shrink-0 mt-0.5"><IconExternal /></span>
-    </a>
-  );
-}
+const STEP_META: Record<number, { phase: string; estimate: string }> = {
+  1: { phase: 'Phase 01', estimate: '2–3 Weeks' },
+  2: { phase: 'Phase 02', estimate: '3–4 Weeks' },
+  3: { phase: 'Phase 03', estimate: '2 Weeks' },
+  4: { phase: 'Phase 04', estimate: '1 Week' },
+  5: { phase: 'Phase 05', estimate: 'Ongoing' },
+};
 
-function SectionHeader({
-  icon,
-  title,
-  subtitle,
-  accentClass,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  subtitle: string;
-  accentClass: string;
-}) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Career Entrance Plan (vertical roadmap)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function EntrancePlan({ roadmap }: { roadmap: CareerRoadmap }) {
   return (
-    <div className={`flex items-center gap-3 rounded-xl px-5 py-4 ${accentClass}`}>
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/30">
-        {icon}
-      </span>
-      <div>
-        <h3 className="text-sm font-bold">{title}</h3>
-        <p className="text-xs opacity-80">{subtitle}</p>
+    <div className="relative space-y-10">
+      {/* Vertical dashed line */}
+      <div className="hidden md:block absolute left-[27px] top-8 bottom-8 w-[2px] roadmap-line opacity-30" />
+
+      {roadmap.entrancePlan.map((step, i) => {
+        const meta = STEP_META[step.step] ?? { phase: `Phase ${step.step}`, estimate: '' };
+
+        return (
+          <div key={step.step} className="relative flex flex-col md:flex-row gap-6 md:gap-12 group animate-fade-in-up" style={{ animationDelay: `${i * 80}ms` }}>
+            {/* Step bubble — all outline style */}
+            <div className="flex-shrink-0 z-10">
+              <div
+                className="w-14 h-14 rounded-full flex items-center justify-center font-bold text-xl shadow-sm transition-transform group-hover:scale-110 duration-300 bg-surface-container-low border-2 border-primary text-primary"
+              >
+                {step.step}
+              </div>
+            </div>
+
+            {/* Card */}
+            <div className="flex-grow bg-surface-container rounded-xl p-6 md:p-8 border border-outline-variant/20 hover:shadow-xl transition-shadow duration-300">
+              {/* Card top row */}
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 gap-3">
+                <div>
+                  <span className="text-tertiary font-bold tracking-widest uppercase text-xs">{meta.phase}</span>
+                  <h3
+                    className="text-xl font-bold text-on-surface mt-1"
+                    style={{ fontFamily: 'Literata, serif' }}
+                  >
+                    {step.action}
+                  </h3>
+                </div>
+
+              </div>
+
+              {/* Detail */}
+              <p className="text-on-surface-variant mb-5 leading-relaxed">{step.detail}</p>
+
+              {/* Reddit evidence */}
+              {step.redditEvidence && (
+                <div className="mb-4 bg-error-container/20 border border-error-container/40 rounded-lg p-4 flex items-start gap-3">
+                  <span className="material-symbols-outlined text-base text-error mt-0.5 shrink-0">forum</span>
+                  <blockquote className="text-sm text-on-surface-variant italic leading-relaxed">
+                    &ldquo;{step.redditEvidence}&rdquo;
+                    {step.redditUrl && (
+                      <a
+                        href={step.redditUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-2 not-italic text-xs font-semibold text-error hover:underline underline-offset-2"
+                      >
+                        Read on Reddit ↗
+                      </a>
+                    )}
+                  </blockquote>
+                </div>
+              )}
+
+              {/* Resources */}
+              {step.resources && step.resources.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-2">
+                    Key Resources
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {step.resources.map((res, idx) => {
+                      const hasUrl = Boolean(res.url && res.url.trim());
+                      const inner = (
+                        <>
+                          {res.type === 'github' && (
+                            <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                              <path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                            </svg>
+                          )}
+                          {res.type === 'course' && <span className="material-symbols-outlined text-base">school</span>}
+                          {res.type === 'docs' && <span className="material-symbols-outlined text-base">description</span>}
+                          {res.type === 'article' && <span className="material-symbols-outlined text-base">article</span>}
+                          {res.type === 'other' && <span className="material-symbols-outlined text-base">open_in_new</span>}
+                          <span>{res.label}</span>
+                          {hasUrl && <span className="material-symbols-outlined text-xs opacity-70">open_in_new</span>}
+                        </>
+                      );
+                      return hasUrl ? (
+                        <a
+                          key={idx}
+                          href={res.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-secondary-container hover:bg-secondary-fixed-dim transition-colors rounded-lg text-on-secondary-container font-semibold"
+                        >
+                          {inner}
+                        </a>
+                      ) : (
+                        <div
+                          key={idx}
+                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-surface-container-high rounded-lg text-on-surface-variant font-semibold cursor-default"
+                        >
+                          {inner}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Bottom motivational note */}
+      <div className="mt-8 p-8 bg-primary/5 rounded-2xl border border-primary/10 text-center">
+        <div className="w-14 h-14 bg-primary-container rounded-full flex items-center justify-center mx-auto mb-4">
+          <span className="material-symbols-outlined text-on-primary-container text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>eco</span>
+        </div>
+        <h3
+          className="text-xl font-bold text-primary mb-2"
+          style={{ fontFamily: 'Literata, serif' }}
+        >
+          Steady growth is sustainable growth.
+        </h3>
+        <p className="text-on-surface-variant max-w-md mx-auto text-sm">
+          This roadmap is designed for depth. Don&apos;t rush the foundational steps — they are the roots that hold your career upright.
+        </p>
       </div>
     </div>
   );
 }
 
-// ── Career Entrance Plan ──────────────────────────────────────────────────────
-
-function EntrancePlan({ roadmap }: { roadmap: CareerRoadmap }) {
-  return (
-    <div className="overflow-hidden rounded-xl border border-indigo-100 bg-white shadow-sm">
-      <SectionHeader
-        icon={<IconMap />}
-        title="Career Entrance Plan"
-        subtitle={`${roadmap.entrancePlan.length} personalised steps based on your gaps${roadmap.redditPostsUsed > 0 ? ` + ${roadmap.redditPostsUsed} Reddit stories` : ''}`}
-        accentClass="bg-indigo-600 text-white"
-      />
-      <ol className="divide-y divide-gray-100 px-5 py-2">
-        {roadmap.entrancePlan.map((step) => (
-          <li key={step.step} className="flex gap-4 py-4">
-            {/* Step number bubble */}
-            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
-              {step.step}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-gray-900">{step.action}</p>
-              <p className="mt-1 text-sm text-gray-600 leading-relaxed">{step.detail}</p>
-              {step.redditEvidence && (
-                <blockquote className="mt-2 border-l-2 border-orange-300 pl-3 text-xs text-gray-500 italic">
-                  &ldquo;{step.redditEvidence}&rdquo;
-                </blockquote>
-              )}
-              {step.redditUrl && <RedditBadge url={step.redditUrl} />}
-              
-              {/* Step-specific learning & GitHub resources */}
-              {step.resources && step.resources.length > 0 && (
-                <div className="mt-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Learning Resources & GitHub Projects</p>
-                  <div className="flex flex-wrap gap-2">
-                    {step.resources.map((res, idx) => (
-                      <a
-                        key={idx}
-                        href={res.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100 bg-indigo-50/50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100/70 hover:border-indigo-200 transition-all hover:scale-[1.01]"
-                      >
-                        {res.type === 'github' && (
-                          <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="currentColor">
-                            <path fillRule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-                          </svg>
-                        )}
-                        {res.type === 'course' && <span className="shrink-0 text-sm leading-none">🎓</span>}
-                        {res.type === 'docs' && <span className="shrink-0 text-sm leading-none">📄</span>}
-                        {res.type === 'article' && <span className="shrink-0 text-sm leading-none">📰</span>}
-                        {res.type === 'other' && <span className="shrink-0 text-sm leading-none">🔗</span>}
-                        <span>{res.label}</span>
-                        <span className="shrink-0 opacity-70"><IconExternal /></span>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-// ── Key Advice ────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Key Advice
+// ─────────────────────────────────────────────────────────────────────────────
 
 function KeyAdvice({ roadmap }: { roadmap: CareerRoadmap }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-sm">
-      <SectionHeader
-        icon={<IconBulb />}
-        title="Key Advice"
-        subtitle="Tailored to your specific skill gaps and experience mismatches"
-        accentClass="bg-emerald-600 text-white"
-      />
-      <ul className="divide-y divide-gray-100 px-5 py-2">
-        {roadmap.advice.map((item, i) => (
-          <li key={i} className="py-4">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">
-                ✓
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-gray-900">{item.tip}</p>
-                <p className="mt-1 text-sm text-gray-600">{item.reason}</p>
-                {item.redditEvidence && (
-                  <blockquote className="mt-2 border-l-2 border-orange-300 pl-3 text-xs text-gray-500 italic">
-                    &ldquo;{item.redditEvidence}&rdquo;
-                  </blockquote>
-                )}
-                {item.redditUrl && <RedditBadge url={item.redditUrl} />}
-              </div>
+    <div className="space-y-4">
+      {roadmap.advice.map((item, i) => (
+        <div
+          key={i}
+          className="bg-surface-container rounded-xl p-6 border border-outline-variant/20 hover:shadow-xl transition-shadow duration-300 animate-fade-in-up"
+          style={{ animationDelay: `${i * 80}ms` }}
+        >
+          <div className="flex items-start gap-4">
+            <div className="w-9 h-9 rounded-full bg-primary-fixed flex items-center justify-center shrink-0 mt-0.5">
+              <span className="material-symbols-outlined text-base text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
             </div>
-          </li>
-        ))}
-      </ul>
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-on-surface" style={{ fontFamily: 'Literata, serif' }}>{item.tip}</p>
+              <p className="mt-1 text-sm text-on-surface-variant leading-relaxed">{item.reason}</p>
+              {item.redditEvidence && (
+                <blockquote className="mt-3 border-l-2 border-error-container pl-3 text-xs text-on-surface-variant italic">
+                  &ldquo;{item.redditEvidence}&rdquo;
+                  {item.redditUrl && (
+                    <a href={item.redditUrl} target="_blank" rel="noopener noreferrer"
+                      className="ml-2 not-italic text-xs font-semibold text-error hover:underline underline-offset-2">
+                      Reddit ↗
+                    </a>
+                  )}
+                </blockquote>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-// ── Real Life Stories ────────────────────────────────────────────────────────
-
-function IconPerson() {
-  return (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  );
-}
-
-function IconUpvote() {
-  return (
-    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-    </svg>
-  );
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Real Stories (Reddit)
+// ─────────────────────────────────────────────────────────────────────────────
 
 function StoryCard({ link }: { link: ReferenceLink }) {
   const isJourney = link.category === 'entry-story' || link.description?.toLowerCase().includes('career journey');
-  const isAdvice = link.category === 'advice' || link.description?.toLowerCase().includes('advice');
   const isBoth = link.category === 'both';
-
-  const sub = link.subreddit || link.description?.match(/from (.+)$/)?.[1] || 'reddit';
+  const sub = link.subreddit || 'reddit';
   const displaySub = sub.startsWith('r/') ? sub : `r/${sub}`;
-
   const quote = link.backgroundContext || (link.description?.startsWith('Real ') ? undefined : link.description);
 
   return (
@@ -257,69 +229,61 @@ function StoryCard({ link }: { link: ReferenceLink }) {
       href={link.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex flex-col gap-3 rounded-2xl border border-orange-100 bg-gradient-to-br from-orange-50 to-amber-50 p-5 shadow-sm transition-all hover:border-orange-300 hover:shadow-md hover:-translate-y-0.5"
+      className="group flex flex-col gap-3 rounded-xl border border-outline-variant/20 bg-surface-container p-5 shadow-sm transition-all hover:border-tertiary/40 hover:shadow-xl hover:-translate-y-0.5 duration-300"
     >
-      {/* Header */}
       <div className="flex items-start gap-3">
-        {/* Reddit avatar bubble */}
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
-          <IconReddit />
+        {/* Reddit alien SVG — avoids the Material Symbols 'REDDIT' text ligature */}
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FF4500]/10">
+          <svg viewBox="0 0 20 20" fill="none" className="h-6 w-6" aria-hidden="true">
+            <circle cx="10" cy="10" r="10" fill="#FF4500" />
+            <path fill="#fff" d="M16.67 10a1.46 1.46 0 0 0-2.47-1 7.12 7.12 0 0 0-3.85-1.23l.65-3.07 2.13.45a1 1 0 1 0 .14-.71l-2.38-.5a.22.22 0 0 0-.26.17l-.73 3.43a7.14 7.14 0 0 0-3.89 1.22 1.46 1.46 0 1 0-1.61 2.39 2.87 2.87 0 0 0 0 .44c0 2.24 2.61 4.06 5.83 4.06s5.83-1.82 5.83-4.06a2.87 2.87 0 0 0 0-.44 1.46 1.46 0 0 0 .57-1.15Zm-9.3 1.07a1 1 0 1 1 1 1 1 1 0 0 1-1-1Zm5.56 2.64a3.44 3.44 0 0 1-2.93.62 3.44 3.44 0 0 1-2.93-.62.22.22 0 0 1 .31-.31 3 3 0 0 0 2.62.5 3 3 0 0 0 2.62-.5.22.22 0 0 1 .31.31Zm-.2-1.64a1 1 0 1 1 1-1 1 1 0 0 1-1 1Z" />
+          </svg>
         </div>
         <div className="min-w-0 flex-1">
-          {/* Community + story type + upvotes */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-bold text-orange-700">
-              {displaySub}
-            </span>
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-              isBoth
-                ? 'bg-indigo-100 text-indigo-700'
-                : isJourney
-                ? 'bg-purple-100 text-purple-700'
-                : 'bg-emerald-100 text-emerald-700'
-            }`}>
+            <span className="rounded-full bg-tertiary-fixed px-2.5 py-0.5 text-xs font-bold text-on-tertiary-fixed-variant">{displaySub}</span>
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${isBoth ? 'bg-primary-fixed text-on-primary-fixed-variant' :
+                isJourney ? 'bg-secondary-fixed text-on-secondary-fixed' :
+                  'bg-primary-fixed/40 text-primary'
+              }`}>
               {isBoth ? '🧭 Journey & Advice 💡' : isJourney ? '🧭 Career Journey' : '💡 Advice'}
             </span>
             {link.upVotes !== undefined && link.upVotes > 0 && (
-              <span className="flex items-center gap-0.5 rounded-full bg-orange-50/50 px-2 py-0.5 text-[10px] font-bold text-orange-600 border border-orange-100/50">
-                <IconUpvote />
+              <span className="flex items-center gap-0.5 text-[10px] font-bold text-tertiary">
+                <span className="material-symbols-outlined text-xs">arrow_upward</span>
                 {link.upVotes >= 1000 ? `${(link.upVotes / 1000).toFixed(1)}k` : link.upVotes}
               </span>
             )}
           </div>
-          {/* Post title */}
-          <p className="mt-1.5 text-sm font-bold text-gray-800 leading-snug group-hover:text-orange-700 transition-colors line-clamp-2">
+          <p className="mt-1.5 text-sm font-bold text-on-surface leading-snug group-hover:text-primary transition-colors line-clamp-2" style={{ fontFamily: 'Literata, serif' }}>
             {link.title}
           </p>
         </div>
       </div>
 
-      {/* Description as a pull-quote */}
       {quote && (
-        <blockquote className="border-l-3 border-orange-300 pl-3 text-xs text-gray-600 italic leading-relaxed bg-white/40 p-2.5 rounded-r-lg">
-          <strong>Background:</strong> &ldquo;{quote}&rdquo;
+        <blockquote className="border-l-2 border-tertiary pl-3 text-xs text-on-surface-variant italic leading-relaxed bg-surface-container-low/60 p-2.5 rounded-r-lg">
+          <strong>Context:</strong> &ldquo;{quote}&rdquo;
         </blockquote>
       )}
 
-      {/* Key Actions List */}
       {link.keyActions && link.keyActions.length > 0 && (
-        <div className="mt-1">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-orange-800 mb-1">Key Actions Taken:</p>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-tertiary mb-1.5">Key Actions Taken:</p>
           <ul className="space-y-1">
             {link.keyActions.map((action, idx) => (
-              <li key={idx} className="flex items-start gap-1.5 text-xs text-gray-700 leading-normal">
-                <span className="mt-1.5 flex h-1.5 w-1.5 shrink-0 rounded-full bg-orange-400" />
-                <span>{action}</span>
+              <li key={idx} className="flex items-start gap-1.5 text-xs text-on-surface-variant">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-tertiary-container shrink-0" />
+                {action}
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {/* CTA */}
-      <div className="flex items-center gap-1.5 text-xs font-semibold text-orange-600 group-hover:text-orange-700 transition-colors mt-auto">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-tertiary group-hover:text-on-tertiary-container transition-colors mt-auto">
         <span>Read on Reddit</span>
-        <IconExternal />
+        <span className="material-symbols-outlined text-xs">open_in_new</span>
       </div>
     </a>
   );
@@ -332,23 +296,16 @@ function ResourceLink({ link }: { link: ReferenceLink }) {
       href={link.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md"
+      className="group flex items-center gap-3 rounded-xl border border-outline-variant/20 bg-surface-container px-4 py-3 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
     >
-      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold shrink-0 ${meta.color}`}>
-        {meta.label}
-      </span>
-      <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-700 group-hover:text-indigo-700 transition-colors">
-        {link.title}
-      </p>
-      <span className="shrink-0 text-gray-400 group-hover:text-indigo-400 transition-colors">
-        <IconExternal />
-      </span>
+      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold shrink-0 ${meta.cls}`}>{meta.label}</span>
+      <p className="min-w-0 flex-1 truncate text-sm font-semibold text-on-surface group-hover:text-primary transition-colors">{link.title}</p>
+      <span className="material-symbols-outlined text-base text-on-surface-variant group-hover:text-primary transition-colors">open_in_new</span>
     </a>
   );
 }
 
 function RealLifeStories({ roadmap }: { roadmap: CareerRoadmap }) {
-  // Dedup by URL first, then by normalised title (safety net for near-duplicate Apify posts)
   const seenUrls = new Set<string>();
   const seenTitles = new Set<string>();
   const redditLinks = roadmap.referenceLinks.filter((l) => {
@@ -363,26 +320,28 @@ function RealLifeStories({ roadmap }: { roadmap: CareerRoadmap }) {
 
   return (
     <div className="space-y-6">
-      {/* Story cards */}
-      <div className="overflow-hidden rounded-xl border border-orange-100 bg-white shadow-sm">
-        <SectionHeader
-          icon={<IconPerson />}
-          title="Real People, Real Paths"
-          subtitle={redditLinks.length > 0
-            ? `${redditLinks.length} Reddit stories from people who made this career transition`
-            : 'No Reddit stories were found for this role'}
-          accentClass="bg-gradient-to-r from-orange-500 to-amber-500 text-white"
-        />
+      <div className="overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container-low shadow-sm">
+        <div className="flex items-center gap-3 bg-tertiary text-on-tertiary px-5 py-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/20">
+            <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>auto_stories</span>
+          </span>
+          <div>
+            <h3 className="text-sm font-bold" style={{ fontFamily: 'Literata, serif' }}>Real People, Real Paths</h3>
+            <p className="text-xs opacity-80">
+              {redditLinks.length > 0
+                ? `${redditLinks.length} Reddit stories from people who made this career transition`
+                : 'No Reddit stories were found for this role'}
+            </p>
+          </div>
+        </div>
         <div className="p-5">
           {redditLinks.length > 0 ? (
             <div className="grid gap-4 sm:grid-cols-2">
-              {redditLinks.map((link, i) => (
-                <StoryCard key={i} link={link} />
-              ))}
+              {redditLinks.map((link, i) => <StoryCard key={i} link={link} />)}
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-2 py-10 text-center text-gray-400">
-              <span className="text-3xl">🔍</span>
+            <div className="flex flex-col items-center gap-2 py-10 text-center text-on-surface-variant">
+              <span className="material-symbols-outlined text-4xl text-outline">search</span>
               <p className="text-sm">No Reddit stories found for this role.</p>
               <p className="text-xs">Try a broader job title for richer results.</p>
             </div>
@@ -390,16 +349,11 @@ function RealLifeStories({ roadmap }: { roadmap: CareerRoadmap }) {
         </div>
       </div>
 
-      {/* Non-Reddit resources — compact secondary list */}
       {otherLinks.length > 0 && (
         <div>
-          <p className="mb-2.5 text-xs font-bold uppercase tracking-wider text-gray-400">
-            Additional Resources
-          </p>
+          <p className="mb-2.5 text-xs font-bold uppercase tracking-widest text-on-surface-variant">Additional Resources</p>
           <div className="grid gap-2 sm:grid-cols-2">
-            {otherLinks.map((link, i) => (
-              <ResourceLink key={i} link={link} />
-            ))}
+            {otherLinks.map((link, i) => <ResourceLink key={i} link={link} />)}
           </div>
         </div>
       )}
@@ -408,55 +362,145 @@ function RealLifeStories({ roadmap }: { roadmap: CareerRoadmap }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Loading skeleton
+// YouTube Resources
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PipelineStep({
-  icon,
-  label,
-  done,
-}: {
-  icon: string;
-  label: string;
-  done: boolean;
-}) {
+function YouTubeVideoCard({ video }: { video: YouTubeVideo }) {
   return (
-    <div className={`flex items-center gap-2 text-sm ${done ? 'text-emerald-600' : 'text-gray-400'}`}>
-      <span>{done ? '✓' : icon}</span>
-      <span>{label}</span>
+    <a
+      href={video.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex flex-col overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container shadow-sm transition-all hover:border-error/30 hover:shadow-md"
+    >
+      <div className="relative aspect-video w-full overflow-hidden bg-surface-container-high">
+        {video.thumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={video.thumbnailUrl} alt={video.title} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+        ) : (
+          <div className="flex h-full items-center justify-center text-4xl">▶️</div>
+        )}
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-error/90 shadow-lg">
+            <svg className="h-5 w-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-1 flex-col gap-1.5 p-3">
+        <p className="text-sm font-semibold text-on-surface leading-snug line-clamp-2 group-hover:text-error transition-colors" style={{ fontFamily: 'Literata, serif' }}>
+          {video.title}
+        </p>
+        <p className="text-xs text-on-surface-variant">{video.channelTitle}</p>
+        {video.viewCount > 0 && (
+          <p className="text-xs text-on-surface-variant flex items-center gap-1">
+            <span className="material-symbols-outlined text-xs">visibility</span>
+            {formatCount(video.viewCount)} views
+          </p>
+        )}
+      </div>
+    </a>
+  );
+}
+
+function YouTubeResources({ roadmap }: { roadmap: CareerRoadmap }) {
+  const videos = roadmap.youtubeVideos ?? [];
+  if (videos.length === 0) {
+    return (
+      <div className="rounded-xl border border-outline-variant/20 bg-surface-container p-8 text-center shadow-sm">
+        <span className="material-symbols-outlined text-4xl text-outline mb-3 block">videocam_off</span>
+        <p className="text-sm font-semibold text-on-surface">No YouTube videos available</p>
+        <p className="mt-1 text-xs text-on-surface-variant">
+          Usually caused by the YouTube API daily quota being exhausted. Try again later.
+        </p>
+      </div>
+    );
+  }
+
+  const byTopic = videos.reduce<Record<string, YouTubeVideo[]>>((acc, v) => {
+    (acc[v.topic] ??= []).push(v);
+    return acc;
+  }, {});
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container-low shadow-sm">
+      <div className="flex items-center gap-3 bg-error text-on-error px-5 py-4">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/20">
+          <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>videocam</span>
+        </span>
+        <div>
+          <h3 className="text-sm font-bold" style={{ fontFamily: 'Literata, serif' }}>YouTube Learning Resources</h3>
+          <p className="text-xs opacity-80">{videos.length} video{videos.length !== 1 ? 's' : ''} matched to your skill gaps</p>
+        </div>
+      </div>
+      <div className="divide-y divide-outline-variant/20">
+        {Object.entries(byTopic).map(([topic, topicVideos]) => (
+          <div key={topic} className="px-5 py-5">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="material-symbols-outlined text-base text-error">bolt</span>
+              <p className="text-xs font-semibold uppercase tracking-wide text-on-surface-variant">
+                Helps you learn: <span className="text-error normal-case capitalize">{topic}</span>
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {topicVideos.map((video) => <YouTubeVideoCard key={video.videoId} video={video} />)}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Loading state (animated cycling messages)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LOADING_MESSAGES = [
+  { icon: '🧭', text: 'Building a roadmap for you…' },
+  { icon: '📖', text: 'Finding real Reddit stories…' },
+  { icon: '🎬', text: 'Looking up videos for your aid…' },
+];
+
 function LoadingState() {
+  const [msgIdx, setMsgIdx] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setMsgIdx((prev) => (prev + 1) % LOADING_MESSAGES.length);
+    }, 8000);
+    return () => clearInterval(id);
+  }, []);
+
+  const msg = LOADING_MESSAGES[msgIdx];
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-5">
-        <div className="flex items-center gap-3 mb-4">
-          <svg className="h-5 w-5 animate-spin text-indigo-500" fill="none" viewBox="0 0 24 24">
+    <div className="space-y-4 animate-fade-in-up">
+      <div className="rounded-xl border border-primary/20 bg-primary/5 p-8">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <svg className="h-8 w-8 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <p className="text-sm font-semibold text-indigo-700">Building your career roadmap…</p>
+          <div key={msgIdx} style={{ animation: 'fadeInUp 0.5s ease' }}>
+            <p className="text-3xl mb-1">{msg.icon}</p>
+            <p className="text-sm font-bold text-primary" style={{ fontFamily: 'Literata, serif' }}>{msg.text}</p>
+          </div>
+          <p className="text-xs text-on-surface-variant max-w-xs">
+            This takes ~30–45 seconds. Hang tight while we personalise everything for you.
+          </p>
         </div>
-        <div className="space-y-2 text-sm">
-          <PipelineStep icon="🔍" label="Scraping Reddit for real career stories…" done={false} />
-          <PipelineStep icon="🤖" label="HuggingFace: ranking posts by relevance…" done={false} />
-          <PipelineStep icon="⚡" label="Groq: generating personalised roadmap…" done={false} />
-        </div>
-        <p className="mt-3 text-xs text-indigo-400">This takes ~30–45 seconds. The more Reddit posts found, the richer the roadmap.</p>
       </div>
-      {/* Skeleton cards */}
       {[1, 2].map((i) => (
-        <div key={i} className="animate-pulse rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="h-14 rounded-t-xl bg-gray-200" />
+        <div key={i} className="animate-pulse rounded-xl border border-outline-variant/20 bg-surface-container shadow-sm">
+          <div className="h-14 rounded-t-xl bg-surface-container-high" />
           <div className="space-y-3 p-5">
             {[1, 2, 3].map((j) => (
               <div key={j} className="flex gap-3">
-                <div className="h-6 w-6 shrink-0 rounded-full bg-gray-100" />
+                <div className="h-6 w-6 shrink-0 rounded-full bg-surface-container-high" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="h-4 w-3/4 rounded bg-gray-100" />
-                  <div className="h-3 w-full rounded bg-gray-50" />
+                  <div className="h-4 w-3/4 rounded bg-surface-container-high" />
+                  <div className="h-3 w-full rounded bg-surface-container-highest/40" />
                 </div>
               </div>
             ))}
@@ -468,156 +512,22 @@ function LoadingState() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// YouTube Resources panel
-// ─────────────────────────────────────────────────────────────────────────────
-
-function formatCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return n > 0 ? String(n) : '';
-}
-
-function YouTubeVideoCard({ video }: { video: YouTubeVideo }) {
-  return (
-    <a
-      href={video.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition-all hover:border-red-200 hover:shadow-md"
-    >
-      {/* Thumbnail */}
-      <div className="relative aspect-video w-full overflow-hidden bg-gray-100">
-        {video.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={video.thumbnailUrl}
-            alt={video.title}
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <span className="text-4xl">▶️</span>
-          </div>
-        )}
-        {/* Play overlay */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600/90 shadow-lg">
-            <svg className="h-5 w-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      {/* Info */}
-      <div className="flex flex-1 flex-col gap-1.5 p-3">
-        <p className="text-sm font-semibold text-gray-800 leading-snug line-clamp-2 group-hover:text-red-700 transition-colors">
-          {video.title}
-        </p>
-        <p className="text-xs text-gray-500">{video.channelTitle}</p>
-        {video.viewCount > 0 && (
-          <p className="text-xs text-gray-400 flex items-center gap-1">
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-            </svg>
-            {formatCount(video.viewCount)} likes
-          </p>
-        )}
-      </div>
-    </a>
-  );
-}
-
-function YouTubeResources({ roadmap }: { roadmap: CareerRoadmap }) {
-  const videos = roadmap.youtubeVideos ?? [];
-
-  if (videos.length === 0) {
-    return (
-      <div className="rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-        <div className="mb-3 flex justify-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-500">
-            <IconYouTube />
-          </span>
-        </div>
-        <p className="text-sm font-semibold text-gray-700">No YouTube videos available</p>
-        <p className="mt-1 text-xs text-gray-400">
-          This is usually caused by the YouTube API daily quota being exhausted from repeated requests.
-          Quota resets at midnight Pacific Time — try again later.
-        </p>
-      </div>
-    );
-  }
-
-  // Group videos by topic
-  const byTopic = videos.reduce<Record<string, YouTubeVideo[]>>((acc, v) => {
-    (acc[v.topic] ??= []).push(v);
-    return acc;
-  }, {});
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-red-100 bg-white shadow-sm">
-      <div className="flex items-center gap-3 bg-red-600 px-5 py-4 text-white">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/20">
-          <IconYouTube />
-        </span>
-        <div>
-          <h3 className="text-sm font-bold">YouTube Learning Resources</h3>
-          <p className="text-xs opacity-80">
-            {videos.length} video{videos.length !== 1 ? 's' : ''} matched to your skill gaps — sorted by likes, last 3 years
-          </p>
-        </div>
-      </div>
-
-      <div className="divide-y divide-gray-100">
-        {Object.entries(byTopic).map(([topic, topicVideos]) => (
-          <div key={topic} className="px-5 py-5">
-            {/* Topic heading — explains what this section helps with */}
-            <div className="mb-3 flex items-center gap-2">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
-                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-1 14v-4H7l5-8v4h4l-5 8z"/>
-                </svg>
-              </span>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Helps you learn: <span className="text-red-600 normal-case capitalize">{topic}</span>
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {topicVideos.map((video) => (
-                <YouTubeVideoCard key={video.videoId} video={video} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Tab bar
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Tab = 'plan' | 'advice' | 'links' | 'videos';
 
-function TabBtn({
-  id,
-  active,
-  onClick,
-  icon,
-  label,
-  count,
-  accentActive,
-}: {
+interface TabBtnProps {
   id: string;
   active: boolean;
   onClick: () => void;
-  icon: React.ReactNode;
+  iconName: string;
   label: string;
   count: number;
-  accentActive: string;
-}) {
+  activeCls: string;
+}
+
+function TabBtn({ id, active, onClick, iconName, label, count, activeCls }: TabBtnProps) {
   return (
     <button
       id={id}
@@ -625,17 +535,15 @@ function TabBtn({
       onClick={onClick}
       className={[
         'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-all',
-        active ? accentActive : 'text-gray-500 hover:bg-gray-100',
+        active ? activeCls : 'text-on-surface-variant hover:bg-surface-container-high',
       ].join(' ')}
     >
-      {icon}
+      <span className="material-symbols-outlined text-base" style={active ? { fontVariationSettings: "'FILL' 1" } : {}}>{iconName}</span>
       <span className="hidden sm:inline">{label}</span>
-      <span
-        className={[
-          'rounded-full px-1.5 py-0.5 text-xs font-bold',
-          active ? 'bg-white/30 text-inherit' : 'bg-gray-200 text-gray-600',
-        ].join(' ')}
-      >
+      <span className={[
+        'rounded-full px-1.5 py-0.5 text-xs font-bold',
+        active ? 'bg-white/30 text-inherit' : 'bg-surface-container-high text-on-surface-variant',
+      ].join(' ')}>
         {count}
       </span>
     </button>
@@ -652,28 +560,25 @@ interface Props {
   error: string | null;
 }
 
-export default function CareerRoadmap({ roadmap, status, error }: Props) {
+export default function CareerRoadmapComponent({ roadmap, status, error }: Props) {
   const [tab, setTab] = useState<Tab>('plan');
 
   if (status === 'idle') return null;
 
   return (
-    <section className="mt-10" aria-label="Career Roadmap">
+    <section className="mt-12" aria-label="Career Roadmap">
       {/* Section header */}
-      <div className="mb-6 flex items-start gap-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-md">
-          <span className="text-lg">🧭</span>
+      <div className="mb-8 text-center">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary-fixed mb-4">
+          <span className="material-symbols-outlined text-primary text-2xl">map</span>
         </div>
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">
-            Your Personalised Career Roadmap
-          </h2>
-          <p className="mt-0.5 text-sm text-gray-500">
-            {roadmap
-              ? `Generated from your resume gaps + ${roadmap.redditPostsUsed} real Reddit career stories`
-              : 'Powered by Groq · HuggingFace · Reddit (via Apify)'}
-          </p>
-        </div>
+        <h2
+          className="text-3xl md:text-4xl font-bold text-on-surface mb-2"
+          style={{ fontFamily: 'Literata, serif' }}
+        >
+          {roadmap ? `Your personalized roadmap.` : 'Building your roadmap…'}
+        </h2>
+
       </div>
 
       {/* Loading */}
@@ -681,13 +586,11 @@ export default function CareerRoadmap({ roadmap, status, error }: Props) {
 
       {/* Error */}
       {status === 'error' && error && (
-        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-5">
-          <svg className="mt-0.5 h-5 w-5 shrink-0 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-          </svg>
+        <div className="flex items-start gap-3 rounded-xl border border-error-container bg-error-container/40 p-5">
+          <span className="material-symbols-outlined text-error mt-0.5">warning</span>
           <div>
-            <p className="text-sm font-semibold text-red-800">Failed to generate roadmap</p>
-            <p className="mt-0.5 text-sm text-red-600">{error}</p>
+            <p className="text-sm font-semibold text-error">Failed to generate roadmap</p>
+            <p className="mt-0.5 text-sm text-on-surface-variant">{error}</p>
           </div>
         </div>
       )}
@@ -695,56 +598,29 @@ export default function CareerRoadmap({ roadmap, status, error }: Props) {
       {/* Success */}
       {status === 'success' && roadmap && (
         <>
-          {/* Tabs */}
-          <div className="mb-5 flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-gray-50 p-1.5">
+          {/* Tab bar */}
+          <div className="mb-6 flex flex-wrap gap-2 rounded-xl border border-outline-variant/30 bg-surface-container-low p-1.5 shadow-sm">
             <TabBtn
-              id="roadmap-tab-plan"
-              active={tab === 'plan'}
-              onClick={() => setTab('plan')}
-              icon={<IconMap />}
-              label="Career Plan"
-              count={roadmap.entrancePlan.length}
-              accentActive="bg-indigo-600 text-white shadow-sm"
+              id="roadmap-tab-plan" active={tab === 'plan'} onClick={() => setTab('plan')}
+              iconName="map" label="Career Plan" count={roadmap.entrancePlan.length}
+              activeCls="bg-primary text-on-primary shadow-sm"
             />
             <TabBtn
-              id="roadmap-tab-advice"
-              active={tab === 'advice'}
-              onClick={() => setTab('advice')}
-              icon={<IconBulb />}
-              label="Key Advice"
-              count={roadmap.advice.length}
-              accentActive="bg-emerald-600 text-white shadow-sm"
+              id="roadmap-tab-advice" active={tab === 'advice'} onClick={() => setTab('advice')}
+              iconName="lightbulb" label="Key Advice" count={roadmap.advice.length}
+              activeCls="bg-tertiary text-on-tertiary shadow-sm"
             />
             <TabBtn
-              id="roadmap-tab-stories"
-              active={tab === 'links'}
-              onClick={() => setTab('links')}
-              icon={<IconPerson />}
-              label="Real Stories"
-              count={roadmap.referenceLinks.filter((l) => l.isReddit).length}
-              accentActive="bg-orange-500 text-white shadow-sm"
+              id="roadmap-tab-stories" active={tab === 'links'} onClick={() => setTab('links')}
+              iconName="auto_stories" label="Real Stories" count={roadmap.referenceLinks.filter(l => l.isReddit).length}
+              activeCls="bg-secondary text-on-secondary shadow-sm"
             />
             <TabBtn
-              id="roadmap-tab-videos"
-              active={tab === 'videos'}
-              onClick={() => setTab('videos')}
-              icon={<IconYouTube />}
-              label="Videos"
-              count={roadmap.youtubeVideos?.length ?? 0}
-              accentActive="bg-red-600 text-white shadow-sm"
+              id="roadmap-tab-videos" active={tab === 'videos'} onClick={() => setTab('videos')}
+              iconName="videocam" label="Videos" count={roadmap.youtubeVideos?.length ?? 0}
+              activeCls="bg-error text-on-error shadow-sm"
             />
           </div>
-
-          {/* Reddit evidence note */}
-          {roadmap.redditPostsUsed > 0 && (
-            <div className="mb-4 flex items-center gap-2 rounded-lg border border-orange-100 bg-orange-50 px-4 py-2 text-xs text-orange-700">
-              <IconReddit />
-              <span>
-                This roadmap is backed by <strong>{roadmap.redditPostsUsed}</strong> real Reddit career stories.
-                Steps and advice with <span className="font-semibold">orange Reddit badges</span> come from real people&apos;s experiences.
-              </span>
-            </div>
-          )}
 
           {/* Tab panels */}
           {tab === 'plan' && <EntrancePlan roadmap={roadmap} />}
@@ -753,8 +629,8 @@ export default function CareerRoadmap({ roadmap, status, error }: Props) {
           {tab === 'videos' && <YouTubeResources roadmap={roadmap} />}
 
           {/* Footer */}
-          <p className="mt-4 text-xs text-gray-400">
-            Pipeline: Tavily (Reddit + resources) · YouTube Data API v3 · HuggingFace (semantic ranking) · Groq/Llama 3 (roadmap generation)
+          <p className="mt-6 text-xs text-on-surface-variant text-center">
+            Pipeline: Tavily (Reddit + resources) · YouTube Data API v3 · HuggingFace (semantic ranking) · Groq/Llama 3
           </p>
         </>
       )}

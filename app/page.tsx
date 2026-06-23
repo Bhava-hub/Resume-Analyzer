@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import ResumeForm from '@/components/ResumeForm';
 import AnalysisResults from '@/components/AnalysisResults';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
-import EmptyState from '@/components/EmptyState';
 import CareerRoadmap from '@/components/CareerRoadmap';
 import { useAnalysis } from '@/hooks/useAnalysis';
 import { useCareerRoadmap } from '@/hooks/useCareerRoadmap';
@@ -32,7 +31,6 @@ export default function HomePage() {
     setJobTitleError(null);
   }
 
-  // Career roadmap — auto-triggered after analysis succeeds
   const {
     roadmap,
     status: roadmapStatus,
@@ -41,16 +39,13 @@ export default function HomePage() {
     reset: resetRoadmap,
   } = useCareerRoadmap();
 
-  // Deduplicate: only fire roadmap once per analysis result
   const lastGeneratedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (status !== 'success' || !result || !jobTitle.trim()) return;
-
     const key = `${jobTitle.trim()}::${result.missingSkills.items.length}::${result.actionPlan.items.length}`;
     if (lastGeneratedKeyRef.current === key) return;
     lastGeneratedKeyRef.current = key;
-
     generateRoadmap(jobTitle.trim(), jobDescription, result);
   }, [status, result, jobTitle, jobDescription, generateRoadmap]);
 
@@ -62,112 +57,205 @@ export default function HomePage() {
     lastGeneratedKeyRef.current = null;
   }
 
-  return (
-    <main className="min-h-screen bg-gray-50">
-      {/* ── Header ─────────────────────────────────────── */}
-      <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600">
-                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round"
-                    d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900 leading-tight">Resume Analyzer</p>
-                <p className="text-xs text-gray-500 leading-tight">AI-powered hiring feedback + career roadmap</p>
-              </div>
-            </div>
+  const showResults = status === 'success' && result;
+  const showForm = !showResults;
 
-            {(status === 'success' || roadmapStatus !== 'idle') && (
-              <button
-                onClick={handleReset}
-                className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                Start over
-              </button>
-            )}
+  return (
+    <div className="bg-mesh min-h-screen flex flex-col text-on-surface">
+
+      {/* ── Fixed Top Nav ──────────────────────────────────────────────── */}
+      <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 md:px-8 h-16 bg-surface-container-lowest shadow-[0px_4px_12px_rgba(46,50,48,0.06)]">
+        <button
+          onClick={handleReset}
+          className="text-lg font-bold text-primary tracking-tight font-headline hover:opacity-80 transition-opacity"
+          style={{ fontFamily: 'Literata, serif' }}
+        >
+          CareerStrategist
+        </button>
+
+
+
+        <div className="flex items-center gap-2">
+          {showResults && (
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-outline-variant text-on-surface-variant text-sm font-semibold hover:bg-surface-container transition-colors"
+            >
+              <span className="material-symbols-outlined text-base" style={{ fontSize: 16 }}>arrow_back</span>
+              Start over
+            </button>
+          )}
+          <button className="p-2 rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant">
+            <span className="material-symbols-outlined">help</span>
+          </button>
+          <button className="p-2 rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant">
+            <span className="material-symbols-outlined">settings</span>
+          </button>
+          <div className="h-8 w-8 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed ml-1">
+            <span className="material-symbols-outlined text-base">account_circle</span>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-        {/* ── Hero ───────────────────────────────────────── */}
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">
-            Get brutally honest resume feedback
-          </h1>
-          <p className="mt-2 text-sm text-gray-500 sm:text-base">
-            Upload your resume, paste a job description, and enter your target job title.
-            Our AI analyzes your gaps <em>and</em> builds a personalized career roadmap backed by real Reddit stories.
-          </p>
-        </div>
+      {/* ── Main ───────────────────────────────────────────────────────── */}
+      <main className="flex-grow pt-24 pb-16 px-4 md:px-6">
 
-        {/* ── Form ───────────────────────────────────────── */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
-          <ResumeForm
-            resumeFile={resumeFile}
-            jobDescription={jobDescription}
-            jobTitle={jobTitle}
-            fileError={fileError}
-            jdError={jdError}
-            jobTitleError={jobTitleError}
-            isLoading={status === 'loading'}
-            onFileChange={setResumeFile}
-            onJdChange={setJobDescription}
-            onJobTitleChange={setJobTitle}
-            onSubmit={analyze}
-          />
-        </div>
+        {/* ══ UPLOAD / FORM PAGE ══════════════════════════════════════════ */}
+        {showForm && (
+          <div className="max-w-4xl mx-auto animate-fade-in-up">
 
-        {/* ── Analysis output ─────────────────────────────── */}
-        <div className="mt-8">
-          {status === 'loading' && <LoadingSkeleton />}
+            {/* Hero */}
+            <div className="text-center mb-10">
+              <h1
+                className="text-4xl md:text-5xl font-bold text-on-surface mb-4 leading-tight"
+                style={{ fontFamily: 'Literata, serif' }}
+              >
+                Your career journey starts with a{' '}
+                <em className="text-primary not-italic">conversation.</em>
+              </h1>
+              <p className="text-lg text-on-surface-variant max-w-2xl mx-auto">
+                Upload your resume and the role you&apos;re chasing. We&apos;ll build a custom
+                strategy to bridge the gap and secure your next move.
+              </p>
+            </div>
 
-          {status === 'error' && error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-5">
-              <div className="flex items-start gap-3">
-                <svg className="mt-0.5 h-5 w-5 shrink-0 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round"
-                    d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                </svg>
+            {/* Analysis loading */}
+            {status === 'loading' && (
+              <div className="mb-6">
+                <LoadingSkeleton />
+              </div>
+            )}
+
+            {/* Error */}
+            {status === 'error' && error && (
+              <div className="mb-6 flex items-start gap-3 rounded-xl border border-error-container bg-error-container/40 p-5">
+                <span className="material-symbols-outlined text-error mt-0.5">warning</span>
                 <div>
-                  <p className="text-sm font-semibold text-red-800">Analysis failed</p>
-                  <p className="mt-0.5 text-sm text-red-600">{error.message}</p>
+                  <p className="text-sm font-semibold text-error">Analysis failed</p>
+                  <p className="mt-0.5 text-sm text-on-error-container">{error.message}</p>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {status === 'success' && result && (
-            <>
-              <AnalysisResults result={result} />
-              {/* Nudge if no job title was provided */}
-              {!jobTitle.trim() && (
-                <div className="mt-4 flex items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
-                  <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                  </svg>
-                  <span>
-                    Add a <strong>Job Title</strong> above and re-analyze to generate your personalised career roadmap.
-                  </span>
+            {/* Bento Form Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
+
+              {/* Left: Resume Upload */}
+              <div className="md:col-span-5 bg-surface-container-low p-8 rounded-xl shadow-[0_4px_20px_rgba(46,50,48,0.06)] border border-outline-variant/30 flex flex-col justify-between">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary">
+                    <span className="material-symbols-outlined">description</span>
+                  </div>
+                  <h2 className="text-xl font-bold" style={{ fontFamily: 'Literata, serif' }}>Resume</h2>
                 </div>
-              )}
-            </>
-          )}
+                <ResumeForm
+                  resumeFile={resumeFile}
+                  jobDescription={jobDescription}
+                  jobTitle={jobTitle}
+                  fileError={fileError}
+                  jdError={jdError}
+                  jobTitleError={jobTitleError}
+                  isLoading={status === 'loading'}
+                  onFileChange={setResumeFile}
+                  onJdChange={setJobDescription}
+                  onJobTitleChange={setJobTitle}
+                  onSubmit={analyze}
+                  uploadOnly
+                />
 
-          {status === 'idle' && <EmptyState />}
-        </div>
+              </div>
 
-        {/* ── Career Roadmap (auto-generated) ─────────────── */}
-        <CareerRoadmap
-          roadmap={roadmap}
-          status={roadmapStatus}
-          error={roadmapError}
-        />
-      </div>
-    </main>
+              {/* Right: Title + JD + CTA */}
+              <div className="md:col-span-7 flex flex-col gap-6">
+                <ResumeForm
+                  resumeFile={resumeFile}
+                  jobDescription={jobDescription}
+                  jobTitle={jobTitle}
+                  fileError={fileError}
+                  jdError={jdError}
+                  jobTitleError={jobTitleError}
+                  isLoading={status === 'loading'}
+                  onFileChange={setResumeFile}
+                  onJdChange={setJobDescription}
+                  onJobTitleChange={setJobTitle}
+                  onSubmit={analyze}
+                  detailsOnly
+                />
+              </div>
+            </div>
+
+            {/* Decorative bottom row */}
+            <div className="mt-16 flex flex-wrap justify-center gap-12 opacity-40 hover:opacity-70 transition-opacity duration-700">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">local_florist</span>
+                <span className="font-semibold text-on-surface-variant" style={{ fontFamily: 'Literata, serif' }}>Organic Insights</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">psychology</span>
+                <span className="font-semibold text-on-surface-variant" style={{ fontFamily: 'Literata, serif' }}>Strategic Wisdom</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">auto_graph</span>
+                <span className="font-semibold text-on-surface-variant" style={{ fontFamily: 'Literata, serif' }}>Grounded Growth</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══ RESULTS PAGE ═══════════════════════════════════════════════ */}
+        {showResults && (
+          <div className="max-w-5xl mx-auto animate-fade-in-up">
+
+            {/* Results header */}
+            <div className="mb-10 text-center">
+              <h1
+                className="text-3xl md:text-4xl font-bold text-on-surface mb-3"
+                style={{ fontFamily: 'Literata, serif' }}
+              >
+                Your analysis is ready.
+              </h1>
+              <p className="text-on-surface-variant max-w-xl mx-auto">
+                Here&apos;s what your resume reveals — and the roadmap to close the gap.
+              </p>
+            </div>
+
+            {/* Analysis cards */}
+            <AnalysisResults result={result} />
+
+            {/* Job title nudge */}
+            {!jobTitle.trim() && (
+              <div className="mt-4 flex items-center gap-2 rounded-xl border border-tertiary-fixed bg-tertiary-fixed/30 px-4 py-3 text-sm text-tertiary">
+                <span className="material-symbols-outlined text-base">info</span>
+                <span>
+                  Add a <strong>Job Title</strong> above and re-analyze to generate your personalised career roadmap.
+                </span>
+              </div>
+            )}
+
+            {/* Career Roadmap */}
+            <CareerRoadmap
+              roadmap={roadmap}
+              status={roadmapStatus}
+              error={roadmapError}
+            />
+          </div>
+        )}
+      </main>
+
+      {/* ── Footer ─────────────────────────────────────────────────────── */}
+      <footer className="py-8 px-6 text-center border-t border-outline-variant/20">
+        <p className="text-on-surface-variant text-sm">
+          A Career Strategist
+        </p>
+        <p className="text-on-surface-variant text-sm">
+          (▀̿Ĺ̯▀̿ ̿)
+        </p>
+
+      </footer>
+
+      {/* ── Atmosphere blobs ───────────────────────────────────────────── */}
+      <div className="fixed top-20 right-[-5%] w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10 pointer-events-none" />
+      <div className="fixed bottom-10 left-[-5%] w-96 h-96 bg-tertiary/5 rounded-full blur-3xl -z-10 pointer-events-none" />
+    </div>
   );
 }

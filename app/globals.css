@@ -1,8 +1,132 @@
 @import "tailwindcss";
 
+/* ── Terra Design Tokens (Tailwind v4 @theme) ─────────────────────────────── */
+@theme {
+  /* Primary — Forest green */
+  --color-primary:                    #4a7c59;
+  --color-on-primary:                 #ffffff;
+  --color-primary-container:          #78a886;
+  --color-on-primary-container:       #d8f0de;
+  --color-primary-fixed:              #c8e8d0;
+  --color-primary-fixed-dim:          #8ecf9e;
+  --color-on-primary-fixed:           #002110;
+  --color-on-primary-fixed-variant:   #2a6038;
+  --color-inverse-primary:            #8ecf9e;
+
+  /* Secondary — Warm stone */
+  --color-secondary:                  #6b6358;
+  --color-on-secondary:               #ffffff;
+  --color-secondary-container:        #f0e8db;
+  --color-on-secondary-container:     #5e5548;
+  --color-secondary-fixed:            #f0e8db;
+  --color-secondary-fixed-dim:        #d4ccbf;
+  --color-on-secondary-fixed:         #1e1a13;
+  --color-on-secondary-fixed-variant: #4a4538;
+
+  /* Tertiary — Warm amber/gold */
+  --color-tertiary:                   #705c30;
+  --color-on-tertiary:                #ffffff;
+  --color-tertiary-container:         #c4a66a;
+  --color-on-tertiary-container:      #554020;
+  --color-tertiary-fixed:             #f8e0a8;
+  --color-tertiary-fixed-dim:         #dcc48e;
+  --color-on-tertiary-fixed:          #221a05;
+  --color-on-tertiary-fixed-variant:  #554020;
+
+  /* Error */
+  --color-error:                      #b83230;
+  --color-on-error:                   #ffffff;
+  --color-error-container:            #ffdad8;
+  --color-on-error-container:         #690005;
+
+  /* Surface scale */
+  --color-surface:                    #faf6f0;
+  --color-surface-dim:                #dbd7cf;
+  --color-surface-bright:             #faf6f0;
+  --color-surface-variant:            #e4e0d8;
+  --color-surface-container-lowest:   #ffffff;
+  --color-surface-container-low:      #f5f1ea;
+  --color-surface-container:          #f0ece4;
+  --color-surface-container-high:     #eae6de;
+  --color-surface-container-highest:  #e4e0d8;
+  --color-on-surface:                 #2e3230;
+  --color-on-surface-variant:         #4a4e4a;
+  --color-inverse-surface:            #2e3230;
+  --color-inverse-on-surface:         #f5f0e8;
+
+  /* Background */
+  --color-background:                 #faf6f0;
+  --color-on-background:              #2e3230;
+
+  /* Outline */
+  --color-outline:                    #74796e;
+  --color-outline-variant:            #c4c8bc;
+
+  /* Font families */
+  --font-family-sans:     'Nunito Sans', sans-serif;
+  --font-family-display:  'Literata', serif;
+  --font-family-headline: 'Literata', serif;
+  --font-family-body:     'Nunito Sans', sans-serif;
+  --font-family-label:    'Nunito Sans', sans-serif;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
 body {
-  background-color: #f9fafb;
-  color: #111827;
+  font-family: 'Nunito Sans', sans-serif;
+  background-color: #faf6f0;
+  color: #2e3230;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, .font-headline, .font-display {
+  font-family: 'Literata', serif;
+}
+
+/* ── Material Symbols ─────────────────────────────────────────────────────── */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
+  font-size: 1.25rem;
+  user-select: none;
+}
+
+/* ── Mesh Background ──────────────────────────────────────────────────────── */
+.bg-mesh {
+  background-color: #faf6f0;
+  background-image:
+    radial-gradient(at 0% 0%,    rgba(74, 124, 89, 0.07) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(112, 92, 48, 0.06) 0px, transparent 50%);
+}
+
+/* ── Roadmap dashed vertical line ─────────────────────────────────────────── */
+.roadmap-line {
+  background: repeating-linear-gradient(
+    to bottom,
+    #c4c8bc 0%,
+    #c4c8bc 50%,
+    transparent 50%,
+    transparent 100%
+  );
+  background-size: 1px 12px;
+}
+
+/* ── Custom Scrollbar ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #f0ece4; }
+::-webkit-scrollbar-thumb { background: #c4c8bc; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #74796e; }
+
+/* ── Animations ───────────────────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease both;
 }
