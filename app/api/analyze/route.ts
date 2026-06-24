@@ -21,33 +21,46 @@ function errorResponse(message: string, code: AnalysisError['code'], status = 40
 }
 
 const PROMPT_TEMPLATE = (resumeText: string, jobDescription: string) => `
-You are a brutal but helpful hiring manager with 10 years of experience.
-
-Analyze this resume against the job description below.
+You are a brutally honest hiring manager with 10 years of experience who has reviewed thousands of resumes. You have just received this resume for this specific role and you are deciding in 30 seconds whether to reject it.
 
 You MUST respond with ONLY valid JSON — no markdown, no code fences, no explanation outside the JSON.
+
+CRITICAL RULES — violating any of these makes your response useless:
+- NEVER restate the job description back to the user. They already read it.
+- NEVER say generic things like "the job requires X" or "the JD mentions Y". That adds zero value.
+- EVERY point must reference something SPECIFIC from the resume by name — a project, a tool they listed, a job title, a course they took.
+- Compare what the candidate HAS against what the role NEEDS and explain the exact gap between those two things.
+- For actionPlan, never say "add keyword X to section Y". Instead give a specific action: a course name, a project to build, a tool to learn, with a realistic timeline.
+- If the resume has no relevant experience at all for a skill, say that directly and harshly.
+- Minimum 3 items per array, maximum 5.
 
 The JSON must follow this exact schema:
 {
   "missingSkills": [
-    { "point": "skill name", "explanation": "why it matters for this role" }
+    { 
+      "point": "skill name", 
+      "explanation": "Reference what the candidate has, then explain exactly why it falls short for this role. Example: candidate lists Python but this role needs MATLAB for signal processing — these are not interchangeable and the candidate cannot bluff through a technical interview with Python alone." 
+    }
   ],
   "experienceGaps": [
-    { "point": "gap description", "explanation": "what the JD demands that the resume lacks" }
+    { 
+      "point": "gap title", 
+      "explanation": "Name the specific experience the candidate is missing, reference their closest related experience from the resume, and explain precisely why that falls short. Be harsh but fair." 
+    }
   ],
   "keywordMismatches": [
-    { "point": "exact keyword from JD", "explanation": "context — where it appears in the JD" }
+    { 
+      "point": "exact keyword from JD", 
+      "explanation": "State exactly where this keyword appears in the JD, confirm it is absent from the resume, and explain what that signals to an ATS and to a human reviewer." 
+    }
   ],
   "actionPlan": [
-    { "point": "concrete action", "explanation": "exact keyword to add and exact resume section to add it in" }
+    { 
+      "point": "specific action title", 
+      "explanation": "Give one concrete action: name a specific course on Coursera or edX, a specific type of project to build with estimated time, or a specific tool to learn. Then explain exactly how to reflect this on the resume — which section, what the bullet point should demonstrate, not just say." 
+    }
   ]
 }
-
-Rules:
-- Every array must have at least one item.
-- Be brutally specific — tailor every point to this exact JD.
-- Never say 'add more keywords' or give generic advice.
-- All values must be plain text — no markdown, no bullet symbols, no asterisks.
 
 ---RESUME---
 ${resumeText}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import ResumeForm from '@/components/ResumeForm';
 import AnalysisResults from '@/components/AnalysisResults';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
@@ -105,7 +106,7 @@ export default function HomePage() {
           <div className="max-w-4xl mx-auto animate-fade-in-up">
 
             {/* Hero */}
-            <div className="text-center mb-10">
+            <div className="text-center mb-8">
               <h1
                 className="text-4xl md:text-5xl font-bold text-on-surface mb-4 leading-tight"
                 style={{ fontFamily: 'Literata, serif' }}
@@ -114,9 +115,39 @@ export default function HomePage() {
                 <em className="text-primary not-italic">conversation.</em>
               </h1>
               <p className="text-lg text-on-surface-variant max-w-2xl mx-auto">
-                Upload your resume and the role you&apos;re chasing. We&apos;ll build a custom
-                strategy to bridge the gap and secure your next move.
+                Most resume tools guess. We don&apos;t. Real gap analysis, a verified roadmap, YouTube videos matched to your exact skill gaps, and actual Reddit stories from people who made your exact career transition — all in one place.
               </p>
+            </div>
+
+            {/* Features Highlight Bar */}
+            <div className="max-w-3xl mx-auto mb-12 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+              <div className="p-5 rounded-2xl bg-surface-container-low border border-outline-variant/30 flex flex-col items-center shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary mb-3">
+                  <span className="material-symbols-outlined text-xl">analytics</span>
+                </div>
+                <h3 className="font-bold text-sm text-on-surface" style={{ fontFamily: 'Literata, serif' }}>Brutal Gap Analysis</h3>
+                <p className="text-xs text-on-surface-variant mt-1.5 leading-relaxed max-w-[220px]">
+                  Brutally honest feedback comparing what your resume has against job demands.
+                </p>
+              </div>
+              <div className="p-5 rounded-2xl bg-surface-container-low border border-outline-variant/30 flex flex-col items-center shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary mb-3">
+                  <span className="material-symbols-outlined text-xl">map</span>
+                </div>
+                <h3 className="font-bold text-sm text-on-surface" style={{ fontFamily: 'Literata, serif' }}>Career Roadmap</h3>
+                <p className="text-xs text-on-surface-variant mt-1.5 leading-relaxed max-w-[220px]">
+                  A 5-step personalized guide featuring verified study courses and tools.
+                </p>
+              </div>
+              <div className="p-5 rounded-2xl bg-surface-container-low border border-outline-variant/30 flex flex-col items-center shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-primary mb-3">
+                  <span className="material-symbols-outlined text-xl">forum</span>
+                </div>
+                <h3 className="font-bold text-sm text-on-surface" style={{ fontFamily: 'Literata, serif' }}>Reddit Career Stories</h3>
+                <p className="text-xs text-on-surface-variant mt-1.5 leading-relaxed max-w-[220px]">
+                  Real-world lived experiences and guidance from professionals in similar roles.
+                </p>
+              </div>
             </div>
 
             {/* Analysis loading */}
@@ -243,14 +274,13 @@ export default function HomePage() {
       </main>
 
       {/* ── Footer ─────────────────────────────────────────────────────── */}
-      <footer className="py-8 px-6 text-center border-t border-outline-variant/20">
+      <footer className="py-8 px-6 text-center border-t border-outline-variant/20 flex flex-col items-center gap-2 justify-center">
         <p className="text-on-surface-variant text-sm">
-          A Career Strategist
+          A Career Strategist · <Link href="/privacy" className="hover:text-primary transition-colors font-medium">Privacy Policy</Link>
         </p>
         <p className="text-on-surface-variant text-sm">
           (▀̿Ĺ̯▀̿ ̿)
         </p>
-
       </footer>
 
       {/* ── Atmosphere blobs ───────────────────────────────────────────── */}
