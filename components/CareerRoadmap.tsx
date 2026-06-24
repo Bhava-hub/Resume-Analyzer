@@ -628,10 +628,7 @@ export default function CareerRoadmapComponent({ roadmap, status, error }: Props
           {tab === 'links' && <RealLifeStories roadmap={roadmap} />}
           {tab === 'videos' && <YouTubeResources roadmap={roadmap} />}
 
-          {/* Footer */}
-          <p className="mt-6 text-xs text-on-surface-variant text-center">
-            Pipeline: Tavily (Reddit + resources) · YouTube Data API v3 · HuggingFace (semantic ranking) · Groq/Llama 3
-          </p>
+
         </>
       )}
     </section>

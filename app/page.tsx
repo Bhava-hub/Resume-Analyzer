@@ -276,7 +276,7 @@ export default function HomePage() {
       {/* ── Footer ─────────────────────────────────────────────────────── */}
       <footer className="py-8 px-6 text-center border-t border-outline-variant/20 flex flex-col items-center gap-2 justify-center">
         <p className="text-on-surface-variant text-sm">
-          A Career Strategist · <Link href="/privacy" className="hover:text-primary transition-colors font-medium">Privacy Policy</Link>
+          A Career Strategist · <Link href="/privacy" className="hover:text-primary transition-colors font-medium">Privacy Policy</Link> · <Link href="/terms" className="hover:text-primary transition-colors font-medium">Terms of Service</Link>
         </p>
         <p className="text-on-surface-variant text-sm">
           (▀̿Ĺ̯▀̿ ̿)
