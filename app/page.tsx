@@ -86,15 +86,7 @@ export default function HomePage() {
               Start over
             </button>
           )}
-          <button className="p-2 rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant">
-            <span className="material-symbols-outlined">help</span>
-          </button>
-          <button className="p-2 rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant">
-            <span className="material-symbols-outlined">settings</span>
-          </button>
-          <div className="h-8 w-8 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed ml-1">
-            <span className="material-symbols-outlined text-base">account_circle</span>
-          </div>
+
         </div>
       </header>
 
