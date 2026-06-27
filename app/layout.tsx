@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';        // ✅ add this import
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -22,7 +23,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+
+        {/* ✅ GA4 — paste your Measurement ID below */}
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-0V5ES4N7P9"
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-0V5ES4N7P9');
+          `}
+        </Script>
+
+      </body>
     </html>
   );
 }
