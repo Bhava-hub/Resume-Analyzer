@@ -12,6 +12,8 @@ import {
 } from '@/utils/validate';
 import { parseAnalysisResponse } from '@/utils/parse';
 import type { AnalysisError } from '@/types/analysis';
+import { db } from '@/lib/db';
+import { sessions, resumes, jobs, analyses } from '@/db/schema';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60; // Vercel: extend timeout to 60s (Hobby plan max)
@@ -178,5 +180,56 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return NextResponse.json({ data: analysisResult });
+  // ── Save to database (non-blocking: a DB failure won't break the response) ──
+  let sessionId: string | null = null;
+  let analysisId: string | null = null;
+
+  try {
+    // 1. Create a session — a lightweight row that groups this user's activity.
+    //    We don't need login; the sessionId cookie can link future requests.
+    const [session] = await db.insert(sessions).values({}).returning();
+    sessionId = session.sessionId;
+
+    // 2. Save the resume text and filename.
+    //    rawText is stored so we can reuse it later without re-uploading the PDF.
+    const [resume] = await db
+      .insert(resumes)
+      .values({
+        sessionId,
+        filename: file.name,
+        rawText: cleanResume,
+      })
+      .returning();
+
+    // 3. Save the job description.
+    const [job] = await db
+      .insert(jobs)
+      .values({ jobDescription: cleanJd })
+      .returning();
+
+    // 4. Save the analysis result as JSONB, linked to session + resume + job.
+    //    JSONB lets us query into the JSON later (e.g. find all analyses with a missing "Python" skill).
+    const [analysis] = await db
+      .insert(analyses)
+      .values({
+        sessionId,
+        resumeId: resume.resumeId,
+        jobId: job.jobId,
+        details: analysisResult,
+      })
+      .returning();
+
+    analysisId = analysis.analysisId;
+    console.log(`[db] Saved analysis ${analysisId} for session ${sessionId}`);
+  } catch (dbErr) {
+    // DB errors are logged but don't fail the request — the user still gets their result.
+    console.error('[db] Failed to save analysis:', dbErr);
+  }
+
+  return NextResponse.json({
+    data: analysisResult,
+    // Return these IDs so the frontend can pass them to /api/career-roadmap
+    sessionId,
+    analysisId,
+  });
 }

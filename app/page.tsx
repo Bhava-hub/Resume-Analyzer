@@ -15,6 +15,7 @@ export default function HomePage() {
     jobDescription,
     status,
     result,
+    analysisId,
     error,
     fileError,
     jdError,
@@ -43,12 +44,13 @@ export default function HomePage() {
   const lastGeneratedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (status !== 'success' || !result || !jobTitle.trim()) return;
+    if (status !== 'success' || !result || !jobTitle.trim() || !analysisId) return;
     const key = `${jobTitle.trim()}::${result.missingSkills.items.length}::${result.actionPlan.items.length}`;
     if (lastGeneratedKeyRef.current === key) return;
     lastGeneratedKeyRef.current = key;
-    generateRoadmap(jobTitle.trim(), jobDescription, result);
-  }, [status, result, jobTitle, jobDescription, generateRoadmap]);
+    // Pass only jobTitle + analysisId — backend fetches the rest from the DB
+    generateRoadmap(jobTitle.trim(), analysisId);
+  }, [status, result, jobTitle, analysisId, generateRoadmap]);
 
   function handleReset() {
     reset();

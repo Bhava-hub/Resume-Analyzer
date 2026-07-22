@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import type {
-  AnalysisResult,
   CareerRoadmap,
   CareerRoadmapStatus,
 } from '@/types/analysis';
@@ -11,7 +10,7 @@ interface UseCareerRoadmapReturn {
   roadmap: CareerRoadmap | null;
   status: CareerRoadmapStatus;
   error: string | null;
-  generate: (jobTitle: string, jobDescription: string, analysisResult: AnalysisResult) => Promise<void>;
+  generate: (jobTitle: string, analysisId: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -30,11 +29,7 @@ export function useCareerRoadmap(): UseCareerRoadmapReturn {
     setError(null);
   }
 
-  async function generate(
-    jobTitle: string,
-    jobDescription: string,
-    analysisResult: AnalysisResult,
-  ) {
+  async function generate(jobTitle: string, analysisId: string) {
     // Abort any in-progress request
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -48,7 +43,8 @@ export function useCareerRoadmap(): UseCareerRoadmapReturn {
       const res = await fetch('/api/career-roadmap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobTitle, jobDescription, analysisResult }),
+        // Only send the job title and analysisId — the backend fetches the rest from the DB.
+        body: JSON.stringify({ jobTitle, analysisId }),
         signal: controller.signal,
       });
 
@@ -76,3 +72,4 @@ export function useCareerRoadmap(): UseCareerRoadmapReturn {
 
   return { roadmap, status, error, generate, reset };
 }
+

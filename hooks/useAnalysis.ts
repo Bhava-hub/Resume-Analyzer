@@ -9,6 +9,7 @@ interface UseAnalysisState {
   jobDescription: string;
   status: AnalysisStatus;
   result: AnalysisResult | null;
+  analysisId: string | null;   // returned by /api/analyze after DB save
   error: AnalysisError | null;
   fileError: string | null;
   jdError: string | null;
@@ -26,6 +27,7 @@ const INITIAL_STATE: UseAnalysisState = {
   jobDescription: '',
   status: 'idle',
   result: null,
+  analysisId: null,
   error: null,
   fileError: null,
   jdError: null,
@@ -97,6 +99,9 @@ export function useAnalysis(): UseAnalysisReturn {
         ...s,
         status: 'success',
         result: json.data,
+        // Capture the analysisId returned by the backend after saving to DB.
+        // Falls back to null if the DB save failed (app still works, just no roadmap link).
+        analysisId: json.analysisId ?? null,
       }));
     } catch {
       setState((s) => ({

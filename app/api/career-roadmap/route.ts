@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { callGroq } from '@/lib/groq';
+import { db } from '@/lib/db';
+import { analyses, jobs } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import type { AnalysisResult, CareerRoadmap, ReferenceLink, RoadmapAdvice, RoadmapStep, YouTubeVideo } from '@/types/analysis';
 
 export const runtime = 'nodejs';
@@ -856,7 +859,9 @@ function errorResponse(message: string, status = 400) {
 }
 
 export async function POST(request: NextRequest) {
-  let body: { jobTitle?: string; jobDescription?: string; analysisResult?: AnalysisResult };
+  // The frontend now sends only jobTitle + analysisId (not the full analysis object).
+  // We look up the rest from the DB — safer and avoids sending large JSON twice.
+  let body: { jobTitle?: string; analysisId?: string };
 
   try {
     body = await request.json();
@@ -865,19 +870,51 @@ export async function POST(request: NextRequest) {
   }
 
   const jobTitle = typeof body.jobTitle === 'string' ? body.jobTitle.trim() : '';
-  const jobDescription = typeof body.jobDescription === 'string' ? body.jobDescription.trim() : '';
-  const analysisResult = body.analysisResult;
+  const analysisId = typeof body.analysisId === 'string' ? body.analysisId.trim() : '';
 
   if (!jobTitle || jobTitle.length < 2) {
     return errorResponse('Job title is required (at least 2 characters).');
   }
-  if (!analysisResult) {
-    return errorResponse('Analysis result is required.');
+  if (!analysisId) {
+    return errorResponse('analysisId is required.');
+  }
+
+  // ── Look up the analysis and its linked job from the DB ──────────────────
+  // We JOIN analyses → jobs using the job_id foreign key.
+  // Drizzle doesn't have a `.join()` on insert, but for SELECT we chain `.where()`.
+  // Here we do two separate queries for clarity — a single JOIN would also work.
+  let analysisResult: AnalysisResult;
+  let jobDescription: string;
+
+  try {
+    // Fetch the analysis row by its primary key
+    const analysisRow = await db
+      .select()
+      .from(analyses)
+      .where(eq(analyses.analysisId, analysisId))
+      .limit(1);
+
+    if (analysisRow.length === 0) {
+      return errorResponse('Analysis not found. Please run the resume analysis first.', 404);
+    }
+
+    // analyses.details is stored as JSONB — cast it to the expected type
+    analysisResult = analysisRow[0].details as AnalysisResult;
+
+    // Fetch the linked job to get its description
+    const jobRow = await db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.jobId, analysisRow[0].jobId!))
+      .limit(1);
+
+    jobDescription = jobRow[0]?.jobDescription ?? '';
+  } catch (dbErr) {
+    console.error('[career-roadmap] DB lookup failed:', dbErr);
+    return errorResponse('Failed to retrieve analysis from database.', 500);
   }
 
   // ── Run Step 1 (Reddit) and Step 2.5 (Resource Discovery) in parallel
-  // Reddit scraping starts immediately; skill simplification + Apify search
-  // chain sequentially but run concurrently with Reddit to avoid extra latency.
   console.log('[career-roadmap] Step 1: Scraping Reddit…');
 
   const rawSkills = analysisResult.missingSkills.items
@@ -886,19 +923,14 @@ export async function POST(request: NextRequest) {
 
   console.log('[career-roadmap] Step 2.5: Simplifying skills with Groq then discovering step-pinned resources via Tavily…');
 
-  // Simplify skills once and share result across both pipelines
   const simplifiedSkills = await simplifySkillsWithGroq(rawSkills.slice(0, 3));
 
-  // Step-pinned resource discovery: 5 targeted queries (one per roadmap step)
-  // Returns up to 2 verified URLs per step — 0 extra API calls vs fetching max_results:3
   const resourceDiscoveryPipeline = () =>
     searchStepResourcesViaTavily(simplifiedSkills, jobTitle);
 
-  // YouTube pipeline uses the same simplified skills
   const youtubePipeline = () =>
     searchYouTubeVideos(simplifiedSkills, jobTitle, 3);
 
-  // Reddit + step-pinned resources + YouTube run in parallel
   const [rawPosts, stepResources, youtubeVideos] = await Promise.all([
     scrapeReddit(jobTitle),
     resourceDiscoveryPipeline(),
@@ -910,15 +942,12 @@ export async function POST(request: NextRequest) {
     `[career-roadmap] Step 2.5 done: ${Object.values(stepResources).flat().length} step-pinned URLs, ${youtubeVideos.length} YouTube videos`,
   );
 
-  // ── Steps 2 & 3: HuggingFace semantic ranking (no separate Groq extract — saves one call)
   let rankedPosts: ApifyPost[] = [];
 
   if (rawPosts.length > 0) {
     console.log('[career-roadmap] Step 2: HuggingFace semantic ranking…');
     const hfRanked = await rankByRelevance(rawPosts, jobTitle, jobDescription);
 
-    // Deduplicate by URL first, then by normalised title
-    // (Apify returns the same post from multiple searches; near-duplicate titles also filtered)
     const seenUrls = new Set<string>();
     const seenTitles = new Set<string>();
     rankedPosts = hfRanked.filter((p) => {
@@ -933,7 +962,6 @@ export async function POST(request: NextRequest) {
     console.log(`[career-roadmap] Step 2 done: ${rankedPosts.length} unique posts (from ${hfRanked.length})`);
   }
 
-  // ── Step 3: Groq roadmap generation (llama-3.1-8b-instant)
   console.log('[career-roadmap] Step 3: Groq roadmap generation…');
   let roadmapParts: Omit<CareerRoadmap, 'jobTitle' | 'redditPostsUsed'>;
 
@@ -946,7 +974,6 @@ export async function POST(request: NextRequest) {
       stepResources,
     );
 
-    // ── Step 4: Dedup referenceLinks (all URLs are real — no normalization needed)
     console.log('[career-roadmap] Step 4: Deduplicating reference links…');
     roadmapParts = deduplicateReferenceLinks(rawRoadmap);
     console.log('[career-roadmap] Step 4 done ✓');
@@ -966,8 +993,23 @@ export async function POST(request: NextRequest) {
     jobTitle,
     redditPostsUsed: rankedPosts.length,
     ...roadmapParts,
-    youtubeVideos,   // must come AFTER spread — roadmapParts has youtubeVideos: [] placeholder
+    youtubeVideos,
   };
+
+  // ── Save the roadmap back into the same analyses row ─────────────────────
+  // We UPDATE analyses SET roadmap_details = roadmap WHERE analysis_id = analysisId.
+  // This keeps a 1:1 link: one analysis row always has at most one roadmap.
+  try {
+    await db
+      .update(analyses)
+      .set({ roadmapDetails: roadmap })
+      .where(eq(analyses.analysisId, analysisId));
+
+    console.log(`[db] Saved roadmap for analysis ${analysisId}`);
+  } catch (dbErr) {
+    // Non-blocking: roadmap is still returned even if DB save fails
+    console.error('[db] Failed to save roadmap:', dbErr);
+  }
 
   console.log('[career-roadmap] Done ✓');
   return NextResponse.json({ data: roadmap });
