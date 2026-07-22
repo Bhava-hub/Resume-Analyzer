@@ -16,9 +16,13 @@ export const resumes = pgTable("resumes", {
     sessionId: uuid("session_id").references(() => sessions.sessionId),
     filename: text("filename"),
     rawText: text("raw_text"),
+    // SHA-256 hash of the resume text — used to detect duplicate uploads.
+    // UNIQUE constraint means the same resume content is only ever stored once.
+    contentHash: text("content_hash").unique(),
     uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow(),
     searchVector: tsvector("search_vector"),
 });
+
 
 export const jobs = pgTable("jobs", {
     jobId: uuid("job_id").primaryKey().defaultRandom(),

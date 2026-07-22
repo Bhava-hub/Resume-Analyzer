@@ -12,8 +12,10 @@ import {
 } from '@/utils/validate';
 import { parseAnalysisResponse } from '@/utils/parse';
 import type { AnalysisError } from '@/types/analysis';
+import { createHash } from 'crypto';   // Node.js built-in — no install needed
 import { db } from '@/lib/db';
 import { sessions, resumes, jobs, analyses } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60; // Vercel: extend timeout to 60s (Hobby plan max)
@@ -185,30 +187,41 @@ export async function POST(request: NextRequest) {
   let analysisId: string | null = null;
 
   try {
-    // 1. Create a session — a lightweight row that groups this user's activity.
-    //    We don't need login; the sessionId cookie can link future requests.
+    // 1. Create a session row.
     const [session] = await db.insert(sessions).values({}).returning();
     sessionId = session.sessionId;
 
-    // 2. Save the resume text and filename.
-    //    rawText is stored so we can reuse it later without re-uploading the PDF.
-    const [resume] = await db
+    // 2. Hash the resume text to detect duplicates.
+    //    SHA-256 is fast, deterministic, and collision-resistant enough for this.
+    //    Same resume content will always produce the same 64-char hex string.
+    const contentHash = createHash('sha256').update(cleanResume).digest('hex');
+
+    // 3. Try to insert the resume. If the same hash already exists (UNIQUE constraint),
+    //    the insert is silently skipped via onConflictDoNothing().
+    await db
       .insert(resumes)
       .values({
         sessionId,
         filename: file.name,
         rawText: cleanResume,
+        contentHash,
       })
-      .returning();
+      .onConflictDoNothing();  // skip if contentHash already exists
 
-    // 3. Save the job description.
+    // 4. Look up the resume by hash — works whether we just inserted it or it already existed.
+    const [resume] = await db
+      .select()
+      .from(resumes)
+      .where(eq(resumes.contentHash, contentHash))
+      .limit(1);
+
+    // 5. Save the job description.
     const [job] = await db
       .insert(jobs)
       .values({ jobDescription: cleanJd })
       .returning();
 
-    // 4. Save the analysis result as JSONB, linked to session + resume + job.
-    //    JSONB lets us query into the JSON later (e.g. find all analyses with a missing "Python" skill).
+    // 6. Save the analysis result as JSONB, linked to session + resume + job.
     const [analysis] = await db
       .insert(analyses)
       .values({
@@ -220,7 +233,7 @@ export async function POST(request: NextRequest) {
       .returning();
 
     analysisId = analysis.analysisId;
-    console.log(`[db] Saved analysis ${analysisId} for session ${sessionId}`);
+    console.log(`[db] Saved analysis ${analysisId} (resume hash: ${contentHash.slice(0, 8)}…)`);
   } catch (dbErr) {
     // DB errors are logged but don't fail the request — the user still gets their result.
     console.error('[db] Failed to save analysis:', dbErr);
