@@ -3,6 +3,7 @@ import { callGroq } from '@/lib/groq';
 import { db } from '@/lib/db';
 import { analyses, jobs } from '@/db/schema';
 import { eq } from 'drizzle-orm';
+import { getCached, setCached } from '@/lib/cache';
 import type { AnalysisResult, CareerRoadmap, ReferenceLink, RoadmapAdvice, RoadmapStep, YouTubeVideo } from '@/types/analysis';
 
 export const runtime = 'nodejs';
@@ -60,6 +61,11 @@ interface ProcessedPost {
  */
 async function simplifySkillsWithGroq(skills: string[]): Promise<string[]> {
   if (skills.length === 0) return [];
+
+  // Cache key: the sorted skill names joined — order shouldn't matter
+  const cacheKey = skills.slice().sort().join('|');
+  const cached = await getCached<string[]>('groq-simplify', cacheKey);
+  if (cached) return cached;
 
   const prompt = `You are a skill normalization engine for a web search system.
 
@@ -119,6 +125,8 @@ ${JSON.stringify(skills)}`;
           console.log(`[groq-simplify] "${orig}" → "${simplified[i]}"`);
         }
       });
+      // Cache for 24h — same skill names always simplify the same way
+      await setCached('groq-simplify', cacheKey, simplified, 86400);
       return simplified;
     }
 
@@ -174,9 +182,13 @@ async function searchStepResourcesViaTavily(
     return empty;
   }
 
-  // Use top simplified skills as anchors; fall back to job title if fewer than 2
+  // Cache key: jobTitle + top 2 skills (these drive all 5 step queries)
   const skill1 = simplifiedSkills[0] ?? jobTitle;
   const skill2 = simplifiedSkills[1] ?? skill1;
+  const cacheKey = `${jobTitle.toLowerCase()}::${skill1}::${skill2}`;
+
+  const cached = await getCached<StepResourceMap>('tavily', cacheKey);
+  if (cached) return cached;
 
   const stepQueries: [StepKey, string][] = [
     ['step1', `${skill1} fundamentals beginner course tutorial`],
@@ -202,7 +214,7 @@ async function searchStepResourcesViaTavily(
           body: JSON.stringify({
             query,
             search_depth: 'basic',
-            max_results: 3,   // fetch 3, take top 2 — no extra API cost
+            max_results: 3,
             include_answer: false,
           }),
         });
@@ -217,7 +229,7 @@ async function searchStepResourcesViaTavily(
         const urls = (data.results ?? [])
           .map((r) => r.url)
           .filter(Boolean)
-          .slice(0, 2);   // ← 2 URLs per step, zero extra API calls
+          .slice(0, 2);
 
         result[stepKey] = urls;
         console.log(`[tavily-steps] ${stepKey} ("${query.slice(0, 50)}…") → ${urls.length} URLs`);
@@ -229,7 +241,14 @@ async function searchStepResourcesViaTavily(
 
   const totalUrls = Object.values(result).reduce((s, urls) => s + urls.length, 0);
   console.log(`[tavily-steps] Done — ${totalUrls} URLs across 5 steps`);
+
+  // Cache for 24h — step resource URLs are stable for the same job title + skills
+  if (totalUrls > 0) {
+    await setCached('tavily', cacheKey, result, 86400);
+  }
+
   return result;
+
 }
 
 // ── Step 0c: Fetch YouTube tutorials via YouTube Data API v3 ──────────────────
@@ -269,19 +288,21 @@ async function searchYouTubeVideos(
 
   const targetSkills = skills.slice(0, maxSkills);
 
-  // Skill-level queries — NO job title in skill queries to keep results on-topic.
-  // Including job title caused YouTube to return general career videos under skill headings.
-  // isRoleTopic=true for the job-title query: keyword filter is skipped (query is specific enough).
+  // Cache key: jobTitle + the top skills used as topics
+  // Videos for the same role+skills will always be the same — cache for 7 days
+  const cacheKey = `${jobTitle.toLowerCase()}::${targetSkills.join(',')}`;
+  const cached = await getCached<YouTubeVideo[]>('youtube', cacheKey);
+  if (cached) return cached;
+
   const topicQueries: [string, string, boolean][] = [
     ...targetSkills.map((skill): [string, string, boolean] => [
       skill,
       `${skill} tutorial beginner guide`,
-      false,  // skill topic — apply keyword filter
+      false,
     ]),
-    [jobTitle, `how to become a ${jobTitle} career guide`, true],  // role topic — skip filter
+    [jobTitle, `how to become a ${jobTitle} career guide`, true],
   ];
 
-  // Only return videos published within the last 5 years (broader to avoid empty results)
   const publishedAfter = new Date(
     Date.now() - 5 * 365.25 * 24 * 60 * 60 * 1000,
   ).toISOString();
@@ -292,12 +313,10 @@ async function searchYouTubeVideos(
   await Promise.all(
     topicQueries.map(async ([topic, query, isRoleTopic]) => {
       try {
-        // Step A: Search for video IDs
         const searchParams = new URLSearchParams({
           part: 'snippet',
           q: query,
           type: 'video',
-          // Removed videoDuration filter — 'medium' was too restrictive for niche roles
           maxResults: '8',
           order: 'relevance',
           publishedAfter,
@@ -312,15 +331,12 @@ async function searchYouTubeVideos(
 
         const searchData = await searchRes.json() as { items?: YouTubeSearchItem[] };
         const items = searchData.items ?? [];
-        // Collect all video IDs — dedup against seenVideoIds happens in Step C
-        // (checking here is ineffective since all topics run in parallel via Promise.all)
         const videoIds = items
           .map((item) => item.id?.videoId)
           .filter((id): id is string => !!id);
 
         if (videoIds.length === 0) return;
 
-        // Step B: Fetch view count statistics for those videos
         const statsParams = new URLSearchParams({
           part: 'statistics',
           id: videoIds.join(','),
@@ -335,23 +351,14 @@ async function searchYouTubeVideos(
         const statsMap = new Map<string, number>();
         for (const stat of statsData.items ?? []) {
           if (stat.id) {
-            // Use viewCount (always public) instead of likeCount (often hidden by creators)
             statsMap.set(stat.id, parseInt(stat.statistics?.viewCount ?? '0', 10));
           }
         }
 
-        // Step C: Build video objects, filter by keyword relevance, sort by view count
-        //
-        // Stem matching strategy:
-        //   - Short keywords ≤4 chars (acronyms like "gis", "nlp", "web"):  exact match
-        //   - Longer keywords: use first 6 chars as a stem so that
-        //     "archaeolog" matches "archaeology", "archaeological", "archaeologist"
-        //     "develo"    matches "developer", "development", "developing"
-        //     "excava"    matches "excavation", "excavations", "excavated"
         const topicKeywords = topic
           .toLowerCase()
           .split(/[\s\-_]+/)
-          .filter((kw) => kw.length >= 2);   // skip empty/single-char tokens
+          .filter((kw) => kw.length >= 2);
 
         const topicVideos: YouTubeVideo[] = items
           .filter((item) => {
@@ -375,22 +382,16 @@ async function searchYouTubeVideos(
               topic,
             };
           })
-          // ── Keyword relevance guard (stem-based, skill topics only) ──────
-          // Role-level topic skips this: its query is already specific enough
-          // ("how to become a ${jobTitle} career guide"), so all results are relevant.
-          // Skill topics filter by stem to prevent off-topic career-advice videos.
           .filter((video) => {
-            if (isRoleTopic) return true;   // role query: trust YouTube's relevance
+            if (isRoleTopic) return true;
             const haystack = `${video.title} ${video.channelTitle}`.toLowerCase();
             return topicKeywords.some((kw) => {
               return kw.length <= 4
-                ? haystack.includes(kw)              // acronym: exact ("gis", "nlp", "aws")
-                : haystack.includes(kw.slice(0, 6)); // stem: "archae", "develo", "excava"
+                ? haystack.includes(kw)
+                : haystack.includes(kw.slice(0, 6));
             });
           })
-          // Sort by view count descending — most-watched first
           .sort((a, b) => b.viewCount - a.viewCount)
-          // Take top 3 per topic (4 topics × 3 = up to 12 videos total)
           .slice(0, 3);
 
         for (const video of topicVideos) {
@@ -406,6 +407,12 @@ async function searchYouTubeVideos(
   );
 
   console.log(`[youtube] Total: ${allVideos.length} videos across ${topicQueries.length} topics`);
+
+  // Cache the full result set for 7 days — YouTube rankings are stable
+  if (allVideos.length > 0) {
+    await setCached('youtube', cacheKey, allVideos, 604800);
+  }
+
   return allVideos;
 }
 
