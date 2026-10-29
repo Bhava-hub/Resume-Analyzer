@@ -5,7 +5,7 @@
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 // Default to fast 8B model; caller can override for heavier tasks
-const DEFAULT_MODEL = 'llama-3.1-8b-instant';
+const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 
 interface GroqMessage {
   role: 'system' | 'user' | 'assistant';
