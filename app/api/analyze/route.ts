@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
         },
         { role: 'user', content: PROMPT_TEMPLATE(cleanResume, cleanJd) },
       ],
-      { model: 'llama-3.3-70b-versatile', temperature: 0.2, maxTokens: 2048 },
+      { model: 'openai/gpt-oss-120b', temperature: 0.2, maxTokens: 2048 },
     );
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);

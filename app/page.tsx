@@ -109,7 +109,7 @@ export default function HomePage() {
                 <em className="text-primary not-italic">conversation.</em>
               </h1>
               <p className="text-lg text-on-surface-variant max-w-2xl mx-auto">
-                Most resume tools guess. We don&apos;t. Real gap analysis, a verified roadmap, YouTube videos matched to your exact skill gaps, and actual Reddit stories from people who made your exact career transition — all in one place.
+                Most resume tools guess. We don&apos;t. Real gap analysis, a verified roadmap, YouTube videos matched to your exact skill gaps, and actual Reddit stories from people who made your exact career transition , all in one place.
               </p>
             </div>
 

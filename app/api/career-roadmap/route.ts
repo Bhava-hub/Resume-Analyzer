@@ -794,7 +794,7 @@ async function generateRoadmapWithGroq(
 
     // simplify call uses ~400 tokens; roadmap output rarely exceeds 1500 tokens.
     // Keeping maxTokens at 2000 leaves headroom and avoids 429s on rapid requests.
-    { model: 'openai/gpt-oss-120b', temperature: 0.3, maxTokens: 2000 },
+    { model: 'openai/gpt-oss-120b', temperature: 0.2, maxTokens: 8192 },
   );
 
   const stripped = raw
@@ -802,11 +802,30 @@ async function generateRoadmapWithGroq(
     .replace(/```\s*$/, '')
     .trim();
 
-  const parsed = JSON.parse(stripped) as {
+  if (!stripped) {
+    console.error('[career-roadmap] Groq returned an empty response.');
+    throw new Error('Groq returned an empty response during roadmap generation.');
+  }
+
+  let parsed: {
     entrancePlan: RoadmapStep[];
     advice: RoadmapAdvice[];
     referenceLinks: ReferenceLink[];
   };
+
+  try {
+    parsed = JSON.parse(stripped);
+  } catch (error) {
+    console.error('[career-roadmap] Invalid JSON from Groq:', {
+      responseLength: raw.length,
+      responsePreview: raw.slice(0, 500),
+      parseError: error instanceof Error ? error.message : String(error),
+    });
+
+    throw new Error(
+      `Groq returned invalid or incomplete JSON (${raw.length} characters).`,
+    );
+  }
 
   if (!Array.isArray(parsed.entrancePlan)) throw new Error('Invalid entrancePlan');
   if (!Array.isArray(parsed.advice)) throw new Error('Invalid advice');
